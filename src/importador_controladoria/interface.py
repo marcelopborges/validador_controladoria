@@ -37,9 +37,10 @@ logger = logging.getLogger(__name__)
 # Diretório para salvar os arquivos processados (usando caminho absoluto)
 PROCESSED_DIR = Path(__file__).parent.parent.parent / "data" / "processados"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+CREDENTIALS_DIR = Path(__file__).parent.parent.parent / "config"
 
 # Caminho para o arquivo de credenciais do BigQuery
-BIGQUERY_CREDENTIALS_PATH = Path("/home/marcelo-borges/Documentos/Projetos/SIAN/validador_controladoria/config/bigquery-credentials.json")
+BIGQUERY_CREDENTIALS_PATH = CREDENTIALS_DIR / "bigquery-credentials.json"
 
 # Dicionário para armazenar os status dos processamentos
 processamentos = {}
@@ -438,6 +439,19 @@ class ProcessamentoThread(threading.Thread):
             logger.error(f"Erro ao criar XML: {str(e)}")
             return False
 
+def get_resource_path(relative_path):
+    """
+    Obtém o caminho absoluto para um recurso, funcionando tanto em desenvolvimento quanto em produção (PyInstaller).
+    """
+    try:
+        # PyInstaller cria um diretório temporário e armazena o caminho em _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # Se não estiver em um executável, usa o diretório do projeto
+        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    
+    return os.path.join(base_path, relative_path)
+
 @app.route('/')
 def index():
     return render_template('index.html', now=datetime.now())
@@ -446,11 +460,19 @@ def index():
 def regras():
     """Serve o arquivo REGRAS_VALIDACAO.md."""
     try:
-        regras_path = Path(__file__).parent.parent.parent / "REGRAS_VALIDACAO.md"
-        if not regras_path.exists():
+        # Tenta primeiro encontrar o arquivo no diretório de recursos do PyInstaller
+        regras_path = get_resource_path("REGRAS_VALIDACAO.md")
+        
+        if not os.path.exists(regras_path):
+            # Se não encontrar, tenta no diretório do projeto
+            regras_path = os.path.join(os.path.dirname(__file__), "..", "..", "REGRAS_VALIDACAO.md")
+        
+        if not os.path.exists(regras_path):
+            logger.error(f"Arquivo de regras não encontrado em: {regras_path}")
             flash('Arquivo de regras não encontrado', 'error')
             return redirect(url_for('index'))
             
+        logger.info(f"Carregando arquivo de regras de: {regras_path}")
         with open(regras_path, 'r', encoding='utf-8') as f:
             conteudo_md = f.read()
             

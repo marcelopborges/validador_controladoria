@@ -30,9 +30,9 @@ Este documento descreve todas as regras de validação e transformação aplicad
 
 ### N_CENTRO_CUSTO
 - **Formato**: 9 dígitos numéricos
-- **Obrigatório**: Sim
+- **Obrigatório**: Condicional - Obrigatório apenas quando N_CONTA não começa com 1
 - **Tipo**: Número inteiro
-- **Observação**: Não aceita valores nulos
+- **Observação**: Pode ser nulo quando N_CONTA começa com 1
 
 ### OPERACAO
 - **Formato**: Texto com no máximo 10 caracteres
@@ -67,7 +67,7 @@ Este documento descreve todas as regras de validação e transformação aplicad
 
 ## Como Corrigir Erros Comuns
 
-1. **Filial inválida**: Certifique-se que a filial possui 4 dígitos e começa com "01"
+1. **Filial inválida**: Certifique-se que a filial possui 4 dígitos
 2. **Data inválida**: Use o formato DD/MM/YYYY (ex: 01/01/2024)
 3. **N_Conta inválido**: Verifique se possui 8 dígitos numéricos
 4. **N_Centro_Custo inválido**: Verifique se possui 9 dígitos numéricos

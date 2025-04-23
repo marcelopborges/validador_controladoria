@@ -44,13 +44,8 @@ def validar_filial(filial: str) -> Tuple[bool, str]:
         # Extrai apenas os números
         filial_str = re.sub(r'\D', '', filial_str)
         if len(filial_str) != 4:
-            return False, "Filial deve ter 4 dígitos"
-    
-    # Verifica se começa com 01
-    if not filial_str.startswith('01'):
-        return False, "Filial deve começar com 01"
-    
-    return True, filial_str
+            return False, "Filial deve ter 4 dígitos"    
+
 
 def formatar_data(data: str) -> Tuple[bool, str]:
     """Formata a data para DD/MM/YYYY."""
@@ -80,10 +75,14 @@ def validar_n_conta(n_conta: str) -> Tuple[bool, int]:
     except:
         return False, "Número da conta inválido"
 
-def validar_centro_custo(centro_custo: str) -> Tuple[bool, int]:
+def validar_centro_custo(centro_custo: str, n_conta: str) -> Tuple[bool, int]:
     """Valida o centro de custo."""
+    # Se n_conta começa com 1, centro_custo pode ser nulo
+    if str(n_conta).startswith('1') and pd.isna(centro_custo):
+        return True, None
+    
     if pd.isna(centro_custo):
-        return False, "Centro de custo não pode ser nulo"
+        return False, "Centro de custo não pode ser nulo quando N_CONTA não começa com 1"
     
     # Remove caracteres não numéricos
     numeros = re.sub(r'\D', '', str(centro_custo))
@@ -235,15 +234,17 @@ def transformar_dados(df: pd.DataFrame) -> Tuple[pd.DataFrame, list]:
                 erros.append(f"Linha {idx+1}: {resultado} - Valor encontrado: '{valor_n_conta}'. O número da conta deve ter 8 dígitos.")
             else:
                 df_transformado.at[idx, 'N_CONTA'] = resultado
+                valor_n_conta_validado = resultado
         except KeyError:
             erros.append(f"Linha {idx+1}: Coluna de número de conta não encontrada - Verifique o nome da coluna (esperado: N_CONTA ou 'N CONTA').")
+            valor_n_conta_validado = None
             
-        # N CENTRO CUSTO
+        # N CENTRO CUSTO - Agora usando o valor validado da conta
         try:
             valor_centro_custo = row[col_n_centro_custo]
-            valido, resultado = validar_centro_custo(valor_centro_custo)
+            valido, resultado = validar_centro_custo(valor_centro_custo, valor_n_conta_validado)
             if not valido:
-                erros.append(f"Linha {idx+1}: {resultado} - Valor encontrado: '{valor_centro_custo}'. O centro de custo deve ter 9 dígitos.")
+                erros.append(f"Linha {idx+1}: {resultado} - Valor encontrado: '{valor_centro_custo}'.")
             else:
                 df_transformado.at[idx, 'N_CENTRO_CUSTO'] = resultado
         except KeyError:
