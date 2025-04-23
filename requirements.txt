@@ -1,0 +1,9 @@
+pandas>=2.0.0
+google-cloud-bigquery>=3.0.0
+google-auth>=2.22.0
+python-dotenv>=1.0.0
+pillow>=10.0.0
+colorama>=0.4.6
+openpyxl>=3.1.2
+xlrd>=2.0.1
+pyinstaller>=6.2.0 
