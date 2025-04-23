@@ -85,6 +85,19 @@ A aplicação permite enviar os dados processados diretamente para o BigQuery. P
 2. Certifique-se de que o dataset e a tabela já existam no BigQuery
 3. Após processar os dados com sucesso, clique no botão "Enviar para BigQuery"
 
+## Configuração das Credenciais
+
+Para configurar as credenciais do BigQuery:
+
+1. Copie o arquivo `config/bigquery-credentials.example.json` para `config/bigquery-credentials.json`
+2. Substitua os valores no arquivo com suas credenciais do Google Cloud
+3. **IMPORTANTE**: Nunca compartilhe ou comite suas credenciais reais
+
+```bash
+cp config/bigquery-credentials.example.json config/bigquery-credentials.json
+# Edite o arquivo config/bigquery-credentials.json com suas credenciais
+```
+
 ## Licença
 
 Este software é proprietário e confidencial.

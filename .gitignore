@@ -31,3 +31,9 @@ data/rejeitados/
 # Sistema operacional
 .DS_Store
 Thumbs.db
+
+# Credenciais
+config/bigquery-credentials.json
+*.key
+*.pem
+*.p12
