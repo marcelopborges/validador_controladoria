@@ -18,6 +18,8 @@ import xml.etree.ElementTree as ET
 import xml.dom.minidom
 from pathlib import Path
 import markdown
+import webbrowser
+from threading import Timer
 
 from .transformacoes import transformar_dados
 from .config import BIGQUERY_CONFIG
@@ -589,9 +591,15 @@ def progresso(processamento_id):
 def download_modelo():
     """Rota para download do arquivo de exemplo."""
     try:
-        # Cria o arquivo de exemplo
-        from criar_excel_exemplo import criar_excel_exemplo
-        arquivo_exemplo = criar_excel_exemplo()
+        # Define o caminho correto do arquivo de exemplo
+        arquivo_exemplo = Path(__file__).parent.parent.parent / "data" / "modelo_importacao.xlsx"
+        
+        if not arquivo_exemplo.exists():
+            logger.error(f"Arquivo de exemplo não encontrado em: {arquivo_exemplo}")
+            flash("Arquivo de exemplo não encontrado", "error")
+            return redirect(url_for('index'))
+        
+        logger.info(f"Enviando arquivo de exemplo: {arquivo_exemplo}")
         
         # Retorna o arquivo para download
         return send_file(
@@ -690,6 +698,10 @@ def processar_em_linha_de_comando(arquivo_path):
         print(f"Erro durante o processamento: {str(e)}")
         raise
 
+def open_browser():
+    """Abre o navegador no endereço do Flask."""
+    webbrowser.open('http://localhost:5000/')
+
 def main():
     # Verificar argumentos de linha de comando
     if len(sys.argv) > 1:
@@ -703,6 +715,8 @@ def main():
         # Modo interface web
         print("Iniciando servidor web na porta 5000...")
         print("Acesse http://localhost:5000 no seu navegador")
+        # Abre o navegador após 1.5 segundos (tempo para o servidor iniciar)
+        Timer(1.5, open_browser).start()
         app.run(debug=False, host='0.0.0.0', port=5000)
 
 if __name__ == "__main__":
