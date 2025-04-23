@@ -16,14 +16,17 @@ for dir_path in [DATA_DIR, LOG_DIR, CONFIG_DIR]:
     dir_path.mkdir(exist_ok=True)
 
 # Configurações do BigQuery
-BIGQUERY_PROJECT = os.getenv("BIGQUERY_PROJECT", "seu-projeto")
-BIGQUERY_DATASET = os.getenv("BIGQUERY_DATASET", "seu-dataset")
-BIGQUERY_TABLE = os.getenv("BIGQUERY_TABLE", "sua-tabela")
+BIGQUERY_CONFIG = {
+    "project_id": "gcp-sian-proj-controladoria",
+    "dataset_id": "silver",
+    "table_id": "orcado",
+    "metadata_table_id": "orcado-metadata"
+}
 
 # Configurações de credenciais
 BIGQUERY_CREDENTIALS = {
     "type": "service_account",
-    "project_id": BIGQUERY_PROJECT,
+    "project_id": BIGQUERY_CONFIG["project_id"],
     "private_key_id": os.getenv("BIGQUERY_PRIVATE_KEY_ID"),
     "private_key": os.getenv("BIGQUERY_PRIVATE_KEY"),
     "client_email": os.getenv("BIGQUERY_CLIENT_EMAIL"),
@@ -76,11 +79,4 @@ LOG_CONFIG = {
         "handlers": ["file", "console"],
         "level": "INFO"
     }
-}
-
-# Configurações do BigQuery
-BIGQUERY_CONFIG = {
-    "dataset_id": BIGQUERY_DATASET,
-    "table_id": BIGQUERY_TABLE,
-    "metadata_table_id": "orcamento_metadata"
 } 

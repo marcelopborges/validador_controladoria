@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatório de Processamento</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --success-color: #2ecc71;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
+            --light-color: #ecf0f1;
+            --dark-color: #34495e;
+        }
+        
+        body {
+            background-color: #f5f5f5;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .main-container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+        }
+        
+        .header {
+            border-bottom: 2px solid var(--light-color);
+            padding-bottom: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .header h1 {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        
+        .summary-card {
+            background-color: var(--light-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .summary-card h5 {
+            color: var(--dark-color);
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        
+        .report-section {
+            margin-bottom: 2rem;
+        }
+        
+        .report-section h3 {
+            color: var(--primary-color);
+            font-weight: 600;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--light-color);
+        }
+        
+        .status-badge {
+            font-size: 0.85rem;
+            padding: 0.35rem 0.65rem;
+            border-radius: 50px;
+        }
+        
+        .metrics-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .metric-card {
+            background-color: white;
+            border-radius: 8px;
+            padding: 1.25rem;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
+            border-left: 5px solid var(--secondary-color);
+        }
+        
+        .metric-card.success {
+            border-left-color: var(--success-color);
+        }
+        
+        .metric-card.warning {
+            border-left-color: var(--warning-color);
+        }
+        
+        .metric-card.danger {
+            border-left-color: var(--danger-color);
+        }
+        
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--dark-color);
+        }
+        
+        .metric-label {
+            color: #777;
+            font-size: 0.9rem;
+        }
+        
+        .table-responsive {
+            margin-bottom: 1.5rem;
+        }
+        
+        .action-btns {
+            margin-top: 2rem;
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+        }
+        
+        .chart-container {
+            height: 300px;
+            margin-bottom: 2rem;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--light-color);
+            color: #777;
+            font-size: 0.9rem;
+        }
+
+        .error-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .validation-item {
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-bottom: 0.75rem;
+            background-color: #f8f9fa;
+            border-left: 4px solid #6c757d;
+        }
+        
+        .validation-item.error {
+            border-left-color: var(--danger-color);
+            background-color: #fff5f5;
+        }
+        
+        .validation-item.warning {
+            border-left-color: var(--warning-color);
+            background-color: #fff9f0;
+        }
+        
+        .validation-item.success {
+            border-left-color: var(--success-color);
+            background-color: #f0fff4;
+        }
+        
+        .timestamp {
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container main-container">
+        <div class="header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h1><i class="fas fa-clipboard-check me-2"></i>Relatório de Processamento</h1>
+                <div>
+                    <span class="badge bg-success status-badge" id="status-badge">Concluído</span>
+                </div>
+            </div>
+            <p class="text-muted">Resultados detalhados do processamento do arquivo</p>
+        </div>
+
+        <div class="summary-card">
+            <h5>Resumo do Processamento</h5>
+            <div class="row">
+                <div class="col-md-6">
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item bg-transparent d-flex justify-content-between px-0">
+                            <span><i class="fas fa-file me-2"></i>Arquivo:</span>
+                            <strong id="filename">dados_controladoria.xlsx</strong>
+                        </li>
+                        <li class="list-group-item bg-transparent d-flex justify-content-between px-0">
+                            <span><i class="fas fa-fingerprint me-2"></i>ID do Processamento:</span>
+                            <strong id="process-id">PROC-20230621-001</strong>
+                        </li>
+                        <li class="list-group-item bg-transparent d-flex justify-content-between px-0">
+                            <span><i class="fas fa-calendar-alt me-2"></i>Data:</span>
+                            <strong id="process-date">21/06/2023</strong>
+                        </li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item bg-transparent d-flex justify-content-between px-0">
+                            <span><i class="fas fa-clock me-2"></i>Horário Início:</span>
+                            <strong id="start-time">14:30:25</strong>
+                        </li>
+                        <li class="list-group-item bg-transparent d-flex justify-content-between px-0">
+                            <span><i class="fas fa-clock me-2"></i>Horário Término:</span>
+                            <strong id="end-time">14:35:42</strong>
+                        </li>
+                        <li class="list-group-item bg-transparent d-flex justify-content-between px-0">
+                            <span><i class="fas fa-stopwatch me-2"></i>Tempo Total:</span>
+                            <strong id="total-time">5min 17s</strong>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="report-section">
+            <h3>Métricas Gerais</h3>
+            <div class="metrics-container">
+                <div class="metric-card success">
+                    <div class="metric-value" id="total-records">1250</div>
+                    <div class="metric-label">Total de Registros</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="processed-records">1230</div>
+                    <div class="metric-label">Registros Processados</div>
+                </div>
+                <div class="metric-card warning">
+                    <div class="metric-value" id="warning-count">15</div>
+                    <div class="metric-label">Avisos</div>
+                </div>
+                <div class="metric-card danger">
+                    <div class="metric-value" id="error-count">5</div>
+                    <div class="metric-label">Erros</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="report-section">
+            <h3>Validação de Dados</h3>
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="chart-container">
+                        <canvas id="validationChart"></canvas>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Tipo de Validação</th>
+                                    <th>Total</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Formato dos Dados</td>
+                                    <td>1250</td>
+                                    <td><span class="badge bg-success">Sucesso</span></td>
+                                </tr>
+                                <tr>
+                                    <td>Campos Obrigatórios</td>
+                                    <td>1250</td>
+                                    <td><span class="badge bg-warning">Avisos (12)</span></td>
+                                </tr>
+                                <tr>
+                                    <td>Consistência dos Valores</td>
+                                    <td>1250</td>
+                                    <td><span class="badge bg-danger">Erros (5)</span></td>
+                                </tr>
+                                <tr>
+                                    <td>Regras de Negócio</td>
+                                    <td>1250</td>
+                                    <td><span class="badge bg-warning">Avisos (3)</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="error-list">
+                <h5 class="mb-3">Lista de Problemas Encontrados</h5>
+                
+                <div class="validation-item error">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="mb-1">Erro de Formato - Linha 23</h6>
+                        <span class="timestamp">14:32:15</span>
+                    </div>
+                    <p class="mb-1">O valor "R$ 1.234,56-" no campo "Valor" não está no formato numérico esperado.</p>
+                    <small>Coluna: Valor | Valor encontrado: "R$ 1.234,56-" | Valor esperado: Número decimal</small>
+                </div>
+                
+                <div class="validation-item warning">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="mb-1">Campo Faltante - Linha 45</h6>
+                        <span class="timestamp">14:33:02</span>
+                    </div>
+                    <p class="mb-1">O campo "Data de Emissão" está vazio.</p>
+                    <small>Coluna: Data de Emissão | Valor encontrado: "" | Valor esperado: Data no formato DD/MM/AAAA</small>
+                </div>
+                
+                <div class="validation-item warning">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="mb-1">Valor Suspeito - Linha 78</h6>
+                        <span class="timestamp">14:33:45</span>
+                    </div>
+                    <p class="mb-1">O valor "R$ 1.500.000,00" no campo "Valor" é muito alto para o tipo de operação "Diárias".</p>
+                    <small>Coluna: Valor | Valor encontrado: "R$ 1.500.000,00" | Limite esperado: Até R$ 10.000,00</small>
+                </div>
+                
+                <!-- Mais itens podem ser adicionados aqui dinamicamente pelo JavaScript -->
+            </div>
+        </div>
+
+        <div class="report-section">
+            <h3>Detalhes por Categoria</h3>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Categoria</th>
+                            <th>Registros</th>
+                            <th>Valor Total</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Pagamentos</td>
+                            <td>450</td>
+                            <td>R$ 1.245.789,32</td>
+                            <td><span class="badge bg-success">OK</span></td>
+                        </tr>
+                        <tr>
+                            <td>Empenhos</td>
+                            <td>325</td>
+                            <td>R$ 952.450,78</td>
+                            <td><span class="badge bg-warning">Avisos (8)</span></td>
+                        </tr>
+                        <tr>
+                            <td>Contratos</td>
+                            <td>275</td>
+                            <td>R$ 3.845.123,45</td>
+                            <td><span class="badge bg-danger">Erros (3)</span></td>
+                        </tr>
+                        <tr>
+                            <td>Diárias</td>
+                            <td>200</td>
+                            <td>R$ 185.650,25</td>
+                            <td><span class="badge bg-warning">Avisos (4)</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="action-btns">
+            <button class="btn btn-primary" id="btn-download-report">
+                <i class="fas fa-download me-2"></i>Baixar Relatório
+            </button>
+            <button class="btn btn-outline-secondary" id="btn-return">
+                <i class="fas fa-arrow-left me-2"></i>Voltar ao Processamento
+            </button>
+        </div>
+
+        <footer>
+            <p>&copy; 2023 Sistema de Validação de Dados - Controladoria. Todos os direitos reservados.</p>
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Função para carregar os dados do relatório
+        function loadReportData() {
+            // Aqui você faria uma chamada AJAX para obter os dados do relatório
+            // Para demonstração, vamos apenas preencher com dados estáticos
+            
+            document.getElementById('filename').textContent = "dados_controladoria.xlsx";
+            document.getElementById('process-id').textContent = "PROC-20230621-001";
+            document.getElementById('process-date').textContent = "21/06/2023";
+            document.getElementById('start-time').textContent = "14:30:25";
+            document.getElementById('end-time').textContent = "14:35:42";
+            document.getElementById('total-time').textContent = "5min 17s";
+            
+            document.getElementById('total-records').textContent = "1250";
+            document.getElementById('processed-records').textContent = "1230";
+            document.getElementById('warning-count').textContent = "15";
+            document.getElementById('error-count').textContent = "5";
+            
+            // Inicializar o gráfico de validação
+            initValidationChart();
+        }
+        
+        // Função para inicializar o gráfico de validação
+        function initValidationChart() {
+            const ctx = document.getElementById('validationChart').getContext('2d');
+            const validationChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Sucesso', 'Avisos', 'Erros'],
+                    datasets: [{
+                        data: [1230, 15, 5],
+                        backgroundColor: [
+                            '#2ecc71',
+                            '#f39c12',
+                            '#e74c3c'
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Função para baixar o relatório
+        document.getElementById('btn-download-report').addEventListener('click', function() {
+            alert('O relatório será baixado em PDF');
+            // Aqui você implementaria a lógica para baixar o relatório
+        });
+        
+        // Função para voltar à página de processamento
+        document.getElementById('btn-return').addEventListener('click', function() {
+            window.location.href = '/processamento';
+        });
+        
+        // Carregar os dados ao inicializar a página
+        document.addEventListener('DOMContentLoaded', loadReportData);
+    </script>
+</body>
+</html> 

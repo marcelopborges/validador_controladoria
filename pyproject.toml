@@ -5,13 +5,19 @@ description = "Importador de dados com validação de qualidade para Controlador
 readme = "README.md"
 requires-python = ">=3.10.13"
 dependencies = [
-    "numpy==1.24.3",
-    "pandas==2.0.3",
-    "great-expectations==1.3.14",
-    "openpyxl==3.1.5",
-    "PyQt6==6.9.0",
-    "google-cloud-bigquery==3.11.0",
-    "google-auth==2.22.0",
+    "numpy==1.26.4",
+    "pandas==2.1.4",
+    "openpyxl>=3.1.2",
+    "google-cloud-bigquery>=3.0.0",
+    "google-auth>=2.22.0",
+    "python-dotenv>=1.0.0",
+    "pillow>=10.0.0",
+    "colorama>=0.4.6",
+    "xlrd>=2.0.1",
+    "flask>=3.1.0",
+    "pyarrow>=19.0.1",
+    "markdown>=3.5.1",
+    "pyinstaller>=6.13.0",
 ]
 
 [build-system]

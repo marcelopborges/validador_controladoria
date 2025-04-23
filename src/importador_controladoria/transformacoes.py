@@ -1,6 +1,9 @@
 import pandas as pd
 import re
 from typing import Tuple
+import logging
+
+logger = logging.getLogger(__name__)
 
 def limpar_texto(texto: str) -> str:
     """Remove acentos, espaços extras e converte para maiúsculas."""
@@ -156,6 +159,12 @@ def transformar_dados(df: pd.DataFrame) -> Tuple[pd.DataFrame, list]:
     
     # Primeiro, converte todos os nomes de colunas para maiúsculas e remove acentos
     df_transformado.columns = [limpar_texto(col) for col in df_transformado.columns]
+    logger.info(f"Colunas após limpeza: {df_transformado.columns.tolist()}")
+    
+    # Converte todas as colunas de texto para maiúsculas
+    for col in df_transformado.select_dtypes(include=['object']).columns:
+        df_transformado[col] = df_transformado[col].apply(lambda x: limpar_texto(x) if pd.notna(x) else x)
+    logger.info("Todas as colunas de texto convertidas para maiúsculas")
     
     # Renomeia colunas se necessário, substituindo espaços por underscores
     colunas_padrao = {
@@ -170,6 +179,7 @@ def transformar_dados(df: pd.DataFrame) -> Tuple[pd.DataFrame, list]:
     
     if colunas_a_renomear:
         df_transformado = df_transformado.rename(columns=colunas_a_renomear)
+        logger.info(f"Colunas renomeadas: {colunas_a_renomear}")
     
     # Mapeamento de nomes de colunas (suporta tanto com espaço quanto com underscore)
     col_n_conta = "N_CONTA" if "N_CONTA" in df_transformado.columns else "N CONTA"
@@ -189,6 +199,8 @@ def transformar_dados(df: pd.DataFrame) -> Tuple[pd.DataFrame, list]:
     if colunas_faltantes:
         erros.append(f"Colunas obrigatórias faltando: {', '.join(colunas_faltantes)}")
         return df_transformado, erros
+    
+    logger.info(f"Colunas necessárias encontradas: {colunas_necessarias}")
     
     # Converte colunas para os tipos corretos
     # Isso evita avisos de tipos incompatíveis durante as atribuições

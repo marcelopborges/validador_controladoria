@@ -137,3 +137,32 @@ Os dropdowns de versão aplicam a versão selecionada a TODOS os registros quand
   - `processados/`: Arquivos que passaram na validação
   - `rejeitados/`: Arquivos que falharam na validação
 - `logs/`: Logs de processamento
+
+## Schema da Tabela
+
+```
+schema = [
+    bigquery.SchemaField("n_conta", "STRING", mode="REQUIRED"),         # Número da conta
+    bigquery.SchemaField("n_centro_custo", "STRING", mode="REQUIRED"),  # Centro de custo
+    bigquery.SchemaField("descricao", "STRING", mode="REQUIRED"),       # Descrição
+    bigquery.SchemaField("valor", "FLOAT64", mode="REQUIRED"),          # Valor
+    bigquery.SchemaField("data", "DATE", mode="REQUIRED"),              # Data
+    bigquery.SchemaField("data_atualizacao", "TIMESTAMP", mode="REQUIRED")  # Data/hora da atualização
+]
+```
+
+## Operação de Merge
+
+```
+MERGE `silver.orcado` T
+USING `silver.orcado_temp` S
+ON T.n_conta = S.n_conta AND T.n_centro_custo = S.n_centro_custo AND T.data = S.data
+WHEN MATCHED THEN
+    UPDATE SET
+        descricao = S.descricao,
+        valor = S.valor,
+        data_atualizacao = CURRENT_TIMESTAMP()
+WHEN NOT MATCHED THEN
+    INSERT (n_conta, n_centro_custo, descricao, valor, data, data_atualizacao)
+    VALUES (S.n_conta, S.n_centro_custo, S.descricao, S.valor, S.data, CURRENT_TIMESTAMP())
+```

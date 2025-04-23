@@ -4,55 +4,617 @@ import platform
 import getpass
 from datetime import datetime
 import pandas as pd
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                            QPushButton, QFileDialog, QLabel, QProgressBar,
-                            QMessageBox, QTextEdit)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+import threading
 from google.cloud import bigquery
 from google.oauth2 import service_account
-from .main import configurar_contexto_gx, criar_expectations, validar_dados
-from .transformacoes import transformar_dados
-from .config import BIGQUERY_CREDENTIALS, BIGQUERY_CONFIG
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file
+from werkzeug.utils import secure_filename
+import tempfile
+import uuid
+import json
+import logging
+import time
+import xml.etree.ElementTree as ET
+import xml.dom.minidom
+from pathlib import Path
+import markdown
 
-class WorkerThread(QThread):
-    progress = pyqtSignal(int)
-    finished = pyqtSignal(bool, str, list)
-    
-    def __init__(self, arquivo_path):
+from .transformacoes import transformar_dados
+from .config import BIGQUERY_CONFIG
+
+# Configuração do Flask
+app = Flask(__name__, 
+    template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
+    static_folder=os.path.join(os.path.dirname(__file__), 'static'))
+app.secret_key = str(uuid.uuid4())
+app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
+
+# Configuração de logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Diretório para salvar os arquivos processados (usando caminho absoluto)
+PROCESSED_DIR = Path(__file__).parent.parent.parent / "data" / "processados"
+PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+
+# Caminho para o arquivo de credenciais do BigQuery
+BIGQUERY_CREDENTIALS_PATH = Path("/home/marcelo-borges/Documentos/Projetos/SIAN/validador_controladoria/config/bigquery-credentials.json")
+
+# Dicionário para armazenar os status dos processamentos
+processamentos = {}
+
+class ProcessamentoThread(threading.Thread):
+    def __init__(self, arquivo_path, processamento_id):
         super().__init__()
         self.arquivo_path = arquivo_path
+        self.processamento_id = processamento_id
+        self.status = {
+            "concluido": False,
+            "sucesso": False,
+            "mensagem": "",
+            "erros": [],
+            "progresso": 0,
+            "arquivo": arquivo_path,
+            "start_time": datetime.now().strftime('%H:%M:%S'),
+            "end_time": "",
+            "processing_time": ""
+        }
+        processamentos[processamento_id] = self.status
         
     def run(self):
         try:
-            # Carrega os dados
-            self.progress.emit(10)
+            # Etapa 1: Carregamento dos dados (0-30%)
+            self.atualizar_progresso(10, "Carregando dados do Excel...")
+            logger.info(f"Carregando arquivo: {self.arquivo_path}")
             df = pd.read_excel(self.arquivo_path)
+            logger.info(f"Dados carregados com sucesso. Shape: {df.shape}")
             
-            # Aplica transformações e validações
-            self.progress.emit(30)
+            # Converte todas as colunas para maiúsculo
+            df.columns = [col.upper() for col in df.columns]
+            logger.info(f"Colunas convertidas para maiúsculo: {df.columns.tolist()}")
+            
+            self.atualizar_progresso(30, "Dados carregados e colunas convertidas para maiúsculo")
+            
+            # Etapa 2: Transformação e Validação (30-60%)
+            self.atualizar_progresso(40, "Aplicando transformações...")
+            logger.info("Iniciando transformação dos dados...")
             df_transformado, erros = transformar_dados(df)
             
             if erros:
-                self.finished.emit(False, "Erros encontrados durante a transformação", erros)
+                logger.error(f"Erros encontrados durante a transformação: {erros}")
+                self.status['erros'] = erros
+                self.finalizar(False, "Foram encontrados erros de validação nos dados", erros)
                 return
             
-            # Valida os dados com Great Expectations
-            self.progress.emit(50)
-            context = configurar_contexto_gx()
-            criar_expectations(context, df_transformado)
-            validar_dados(context, df_transformado)
+            self.atualizar_progresso(60, "Transformações e validações concluídas")
             
-            # Exporta para BigQuery
-            self.progress.emit(70)
-            self.exportar_para_bigquery(df_transformado)
+            # Etapa 3: Exportação para BigQuery (60-90%)
+            self.atualizar_progresso(70, "Exportando para BigQuery...")
+            logger.info("Iniciando exportação para BigQuery...")
             
-            self.progress.emit(100)
-            self.finished.emit(True, "Processo concluído com sucesso!", [])
+            # Tenta exportar para o BigQuery
+            exportou_bigquery = self.exportar_para_bigquery(df_transformado)
+            
+            # Etapa 4: Salvamento dos arquivos processados (90-100%)
+            self.atualizar_progresso(90, "Salvando arquivos processados...")
+            
+            # Define o prefixo para arquivos processados
+            nome_base = os.path.splitext(os.path.basename(self.arquivo_path))[0]
+            prefixo = f"processado_{nome_base}"
+            
+            # Salva os dados processados em CSV
+            arquivo_csv = PROCESSED_DIR / f"{prefixo}.csv"
+            df_transformado.to_csv(arquivo_csv, index=False)
+            logger.info(f"Dados processados salvos em CSV: {arquivo_csv}")
+            
+            # Salva os dados processados em XML
+            arquivo_xml = PROCESSED_DIR / f"{prefixo}.xml"
+            self.exportar_para_xml(df_transformado, arquivo_xml)
+            logger.info(f"Dados processados salvos em XML: {arquivo_xml}")
+            
+            # Mensagem final
+            if exportou_bigquery:
+                self.finalizar(True, f"Processo concluído com sucesso! Arquivos salvos em {PROCESSED_DIR} e enviados para o BigQuery", [])
+            else:
+                self.finalizar(True, f"Processo concluído com sucesso! Arquivos salvos em {PROCESSED_DIR} (BigQuery não configurado)", [])
             
         except Exception as e:
-            self.finished.emit(False, f"Erro: {str(e)}", [])
+            logger.error(f"Erro no processamento: {str(e)}")
+            self.finalizar(False, f"Erro: {str(e)}", [str(e)])
+    
+    def atualizar_progresso(self, valor, mensagem):
+        self.status["progresso"] = valor
+        self.status["mensagem"] = mensagem
+        logger.info(f"Progresso: {valor}% - {mensagem}")
+    
+    def finalizar(self, sucesso, mensagem, erros):
+        self.status["concluido"] = True
+        self.status["sucesso"] = sucesso
+        self.status["mensagem"] = mensagem
+        self.status["erros"] = erros
+        self.status["progresso"] = 100 if sucesso else self.status["progresso"]
+        self.status["end_time"] = datetime.now().strftime('%H:%M:%S')
+        
+        # Calcula o tempo de processamento
+        start = datetime.strptime(self.status["start_time"], '%H:%M:%S')
+        end = datetime.strptime(self.status["end_time"], '%H:%M:%S')
+        duration = end - start
+        self.status["processing_time"] = str(duration)
+        
+        logger.info(f"Processamento finalizado - Sucesso: {sucesso} - Mensagem: {mensagem}")
     
     def exportar_para_bigquery(self, df):
+        """Exporta os dados para o BigQuery."""
+        try:
+            # Verifica se o arquivo de credenciais existe
+            if not BIGQUERY_CREDENTIALS_PATH.exists():
+                logger.warning(f"Arquivo de credenciais do BigQuery não encontrado em: {BIGQUERY_CREDENTIALS_PATH}")
+                self.atualizar_progresso(90, "Exportação para BigQuery pulada (credenciais não encontradas)")
+                return True
+                
+            # Limpa os dados para remover valores nulos ou problemáticos
+            # Substitui None por string vazia em todas as colunas de texto
+            for col in df.select_dtypes(include=['object']).columns:
+                df[col] = df[col].fillna('')
+            
+            # Substitui None por 0 em colunas numéricas
+            for col in df.select_dtypes(include=['number']).columns:
+                df[col] = df[col].fillna(0)
+                
+            # Garante que a coluna OPERACAO está preenchida
+            if 'OPERACAO' in df.columns:
+                df['OPERACAO'] = df['OPERACAO'].fillna('')
+                
+            logger.info(f"Dados limpos para BigQuery. Shape: {df.shape}")
+            logger.info(f"Colunas do DataFrame: {df.columns.tolist()}")
+            
+            # Mapeia as colunas do DataFrame para o schema do BigQuery
+            df_bigquery = pd.DataFrame()
+            
+            # Log das colunas originais
+            logger.info(f"Colunas originais do DataFrame: {df.columns.tolist()}")
+            
+            # Converte todas as colunas para maiúsculo
+            df.columns = [col.upper() for col in df.columns]
+            logger.info(f"Colunas convertidas para maiúsculo: {df.columns.tolist()}")
+            
+            # Cria o DataFrame df_bigquery com as colunas corretas
+            df_bigquery = pd.DataFrame({
+                'N_CONTA': df['N_CONTA'].astype(str) if 'N_CONTA' in df.columns else df['N CONTA'].astype(str),
+                'N_CENTRO_CUSTO': df['N_CENTRO_CUSTO'].astype(str) if 'N_CENTRO_CUSTO' in df.columns else df['N CENTRO CUSTO'].astype(str),
+                'DESCRICAO': df['DESCRICAO'].astype(str) if 'DESCRICAO' in df.columns else df['descricao'].astype(str),
+                'VALOR': df['VALOR'].astype(float) if 'VALOR' in df.columns else df['valor'].astype(float),
+                'DATA': pd.to_datetime(df['DATA']).dt.date if 'DATA' in df.columns else pd.to_datetime(df['data']).dt.date,
+                'DATA_ATUALIZACAO': pd.Timestamp.now()
+            })
+            
+            logger.info(f"Dados mapeados para BigQuery. Shape: {df_bigquery.shape}")
+            logger.info(f"Colunas do DataFrame original: {df.columns.tolist()}")
+            logger.info(f"Colunas do DataFrame BigQuery: {df_bigquery.columns.tolist()}")
+            
+            # Verifica se todas as colunas necessárias estão presentes
+            colunas_necessarias = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'DATA_ATUALIZACAO']
+            colunas_faltantes = [col for col in colunas_necessarias if col not in df_bigquery.columns]
+            if colunas_faltantes:
+                logger.error(f"Colunas faltando no DataFrame BigQuery: {colunas_faltantes}")
+                self.atualizar_progresso(90, f"Erro: Colunas faltando no DataFrame BigQuery: {colunas_faltantes}")
+                return False
+            
+            # Verifica se há dados no DataFrame
+            if df_bigquery.empty:
+                logger.error("DataFrame BigQuery está vazio")
+                self.atualizar_progresso(90, "Erro: DataFrame BigQuery está vazio")
+                return False
+                
+            # Verifica se há valores nulos
+            for col in df_bigquery.columns:
+                nulos = df_bigquery[col].isnull().sum()
+                if nulos > 0:
+                    logger.error(f"Coluna {col} tem {nulos} valores nulos")
+                    self.atualizar_progresso(90, f"Erro: Coluna {col} tem {nulos} valores nulos")
+                    return False
+            
+            # Cria as credenciais a partir do arquivo JSON
+            try:
+                credentials = service_account.Credentials.from_service_account_file(
+                    BIGQUERY_CREDENTIALS_PATH,
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+                logger.info("Credenciais do BigQuery carregadas com sucesso")
+            except Exception as e:
+                logger.error(f"Erro ao carregar credenciais do BigQuery: {str(e)}")
+                self.atualizar_progresso(90, f"Erro ao carregar credenciais do BigQuery: {str(e)}")
+                return False
+            
+            # Inicializa o cliente do BigQuery
+            try:
+                client = bigquery.Client(
+                    project=BIGQUERY_CONFIG.get("project_id", "projeto-teste"),
+                    credentials=credentials
+                )
+                logger.info(f"Cliente BigQuery inicializado com projeto: {BIGQUERY_CONFIG.get('project_id')}")
+            except Exception as e:
+                logger.error(f"Erro ao inicializar cliente BigQuery: {str(e)}")
+                self.atualizar_progresso(90, f"Erro ao inicializar cliente BigQuery: {str(e)}")
+                return False
+            
+            # Define o ID do dataset e tabela
+            dataset_id = BIGQUERY_CONFIG.get("dataset_id", "dataset_teste")
+            table_id = BIGQUERY_CONFIG.get("table_id", "tabela_teste")
+            metadata_table_id = BIGQUERY_CONFIG.get("metadata_table_id", "metadata_teste")
+            
+            # Define o schema da tabela
+            schema = [
+                bigquery.SchemaField("N_CONTA", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("N_CENTRO_CUSTO", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("DESCRICAO", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("VALOR", "FLOAT64", mode="REQUIRED"),
+                bigquery.SchemaField("DATA", "DATE", mode="REQUIRED"),
+                bigquery.SchemaField("DATA_ATUALIZACAO", "TIMESTAMP", mode="REQUIRED")
+            ]
+            
+            # Verifica se o dataset existe
+            try:
+                client.get_dataset(dataset_id)
+                logger.info(f"Dataset {dataset_id} encontrado")
+            except Exception as e:
+                logger.error(f"Dataset {dataset_id} não encontrado: {str(e)}")
+                self.atualizar_progresso(90, f"Dataset {dataset_id} não encontrado. Verifique as configurações.")
+                return False
+            
+            # Verifica se a tabela existe
+            table_ref = client.dataset(dataset_id).table(table_id)
+            try:
+                table = client.get_table(table_ref)
+                logger.info(f"Tabela {table_id} encontrada")
+                
+                # Verifica se o schema está correto
+                schema_atual = [field.name for field in table.schema]
+                schema_esperado = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'DATA_ATUALIZACAO']
+                
+                if set(schema_atual) != set(schema_esperado):
+                    logger.warning(f"Schema da tabela {table_id} não está correto. Recriando tabela...")
+                    client.delete_table(table_ref)
+                    raise Exception("Schema incorreto")
+                    
+            except Exception as e:
+                logger.info(f"Criando tabela {table_id} com schema correto...")
+                # Cria a tabela com o schema correto
+                table = bigquery.Table(table_ref, schema=schema)
+                table = client.create_table(table)
+                logger.info(f"Tabela {table_id} criada com sucesso")
+            
+            # Cria uma tabela temporária para os novos dados
+            temp_table_id = f"{table_id}_temp_{int(time.time())}"
+            temp_table_ref = client.dataset(dataset_id).table(temp_table_id)
+            
+            # Configura o job para a tabela temporária
+            job_config = bigquery.LoadJobConfig(
+                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+                schema=schema
+            )
+            
+            # Carrega os dados na tabela temporária
+            job = client.load_table_from_dataframe(
+                df_bigquery, temp_table_ref, job_config=job_config
+            )
+            job.result()  # Aguarda a conclusão do job
+            
+            # Query para fazer o merge dos dados
+            merge_query = f"""
+            MERGE `{dataset_id}.{table_id}` T
+            USING `{dataset_id}.{temp_table_id}` S
+            ON T.N_CONTA = S.N_CONTA AND T.N_CENTRO_CUSTO = S.N_CENTRO_CUSTO AND T.DATA = S.DATA
+            WHEN MATCHED THEN
+                UPDATE SET
+                    DESCRICAO = S.DESCRICAO,
+                    VALOR = S.VALOR,
+                    DATA_ATUALIZACAO = CURRENT_TIMESTAMP()
+            WHEN NOT MATCHED THEN
+                INSERT (N_CONTA, N_CENTRO_CUSTO, DESCRICAO, VALOR, DATA, DATA_ATUALIZACAO)
+                VALUES (S.N_CONTA, S.N_CENTRO_CUSTO, S.DESCRICAO, S.VALOR, S.DATA, CURRENT_TIMESTAMP())
+            """
+            
+            # Executa o merge
+            query_job = client.query(merge_query)
+            query_job.result()
+            
+            # Remove a tabela temporária
+            client.delete_table(temp_table_ref)
+            
+            # Cria e carrega os metadados
+            metadata = {
+                "DATA_IMPORTACAO": pd.Timestamp.now(),
+                "USUARIO": str(getpass.getuser()),
+                "SISTEMA_OPERACIONAL": str(platform.system()),
+                "VERSAO_SISTEMA": str(platform.version()),
+                "ARQUIVO_ORIGEM": str(os.path.basename(self.arquivo_path)),
+                "TOTAL_REGISTROS": int(len(df)),
+                "STATUS": "SUCESSO"
+            }
+            
+            # Cria o DataFrame com tipos explícitos
+            df_metadata = pd.DataFrame({
+                "DATA_IMPORTACAO": [metadata["DATA_IMPORTACAO"]],
+                "USUARIO": [metadata["USUARIO"]],
+                "SISTEMA_OPERACIONAL": [metadata["SISTEMA_OPERACIONAL"]],
+                "VERSAO_SISTEMA": [metadata["VERSAO_SISTEMA"]],
+                "ARQUIVO_ORIGEM": [metadata["ARQUIVO_ORIGEM"]],
+                "TOTAL_REGISTROS": [metadata["TOTAL_REGISTROS"]],
+                "STATUS": [metadata["STATUS"]]
+            })
+            
+            # Define o schema da tabela de metadados
+            metadata_schema = [
+                bigquery.SchemaField("DATA_IMPORTACAO", "TIMESTAMP", mode="REQUIRED"),
+                bigquery.SchemaField("USUARIO", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("SISTEMA_OPERACIONAL", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("VERSAO_SISTEMA", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("ARQUIVO_ORIGEM", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("TOTAL_REGISTROS", "INTEGER", mode="REQUIRED"),
+                bigquery.SchemaField("STATUS", "STRING", mode="REQUIRED")
+            ]
+            
+            # Carrega os metadados
+            metadata_table_ref = client.dataset(dataset_id).table(metadata_table_id)
+            
+            # Verifica se a tabela de metadados existe
+            try:
+                metadata_table = client.get_table(metadata_table_ref)
+                logger.info(f"Tabela de metadados {metadata_table_id} encontrada")
+            except Exception as e:
+                logger.info(f"Criando tabela de metadados {metadata_table_id}...")
+                metadata_table = bigquery.Table(metadata_table_ref, schema=metadata_schema)
+                metadata_table = client.create_table(metadata_table)
+                logger.info(f"Tabela de metadados {metadata_table_id} criada com sucesso")
+            
+            # Configura o job para os metadados
+            metadata_job_config = bigquery.LoadJobConfig(
+                write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+                schema=metadata_schema
+            )
+            
+            # Carrega os metadados
+            metadata_job = client.load_table_from_dataframe(
+                df_metadata, metadata_table_ref, job_config=metadata_job_config
+            )
+            metadata_job.result()
+            
+            self.atualizar_progresso(90, "Dados exportados com sucesso!")
+            logger.info("Dados exportados com sucesso para o BigQuery")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erro ao exportar para BigQuery: {str(e)}")
+            self.atualizar_progresso(90, f"Erro ao exportar para BigQuery: {str(e)}")
+            return False
+
+    def exportar_para_xml(self, df, arquivo_xml):
+        """Exporta os dados para um arquivo XML formatado."""
+        try:
+            # Cria a raiz do XML
+            root = ET.Element("DadosProcessados")
+            
+            # Adiciona informações de metadados
+            metadata = ET.SubElement(root, "Metadados")
+            ET.SubElement(metadata, "DataProcessamento").text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ET.SubElement(metadata, "ArquivoOrigem").text = os.path.basename(self.arquivo_path)
+            ET.SubElement(metadata, "TotalRegistros").text = str(len(df))
+            
+            # Adiciona os registros
+            registros = ET.SubElement(root, "Registros")
+            
+            # Converte cada linha do DataFrame em um elemento XML
+            for _, row in df.iterrows():
+                registro = ET.SubElement(registros, "Registro")
+                
+                # Adiciona cada coluna como um elemento
+                for coluna, valor in row.items():
+                    # Converte valor para string
+                    if pd.isna(valor):
+                        valor_str = ""
+                    elif isinstance(valor, (int, float)):
+                        valor_str = str(valor)
+                    else:
+                        valor_str = str(valor)
+                    
+                    # Adiciona o elemento
+                    ET.SubElement(registro, coluna).text = valor_str
+            
+            # Converte para string e formata para melhor legibilidade
+            xml_str = ET.tostring(root, encoding='utf-8')
+            dom = xml.dom.minidom.parseString(xml_str)
+            xml_formatado = dom.toprettyxml(indent="  ")
+            
+            # Salva no arquivo
+            with open(arquivo_xml, 'w', encoding='utf-8') as f:
+                f.write(xml_formatado)
+                
+            logger.info(f"XML criado com sucesso: {arquivo_xml}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erro ao criar XML: {str(e)}")
+            return False
+
+@app.route('/')
+def index():
+    return render_template('index.html', now=datetime.now())
+
+@app.route('/regras')
+def regras():
+    """Serve o arquivo REGRAS_VALIDACAO.md."""
+    try:
+        regras_path = Path(__file__).parent.parent.parent / "REGRAS_VALIDACAO.md"
+        if not regras_path.exists():
+            flash('Arquivo de regras não encontrado', 'error')
+            return redirect(url_for('index'))
+            
+        with open(regras_path, 'r', encoding='utf-8') as f:
+            conteudo_md = f.read()
+            
+        # Converte o conteúdo MARKDOWN para HTML
+        conteudo_html = markdown.markdown(conteudo_md, extensions=['tables', 'fenced_code'])
+            
+        return render_template('regras.html', conteudo=conteudo_html, now=datetime.now())
+    except Exception as e:
+        logger.error(f"Erro ao carregar regras: {str(e)}")
+        flash('Erro ao carregar regras de validação', 'error')
+        return redirect(url_for('index'))
+
+@app.route('/upload', methods=['GET', 'POST'])
+def upload():
+    if request.method == 'GET':
+        return redirect(url_for('index'))
+        
+    try:
+        if 'arquivo' not in request.files:
+            logger.error("Nenhum arquivo enviado")
+            flash('Nenhum arquivo selecionado', 'error')
+            return redirect(url_for('index'))
+        
+        arquivo = request.files['arquivo']
+        
+        if arquivo.filename == '':
+            logger.error("Nome do arquivo vazio")
+            flash('Nenhum arquivo selecionado', 'error')
+            return redirect(url_for('index'))
+        
+        if arquivo and arquivo.filename.endswith(('.xlsx', '.xls', '.csv')):
+            # Salva o arquivo temporariamente
+            filename = secure_filename(arquivo.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            arquivo.save(filepath)
+            
+            # Cria um ID para o processamento
+            processamento_id = str(uuid.uuid4())
+            
+            # Inicia o processamento em background
+            thread = ProcessamentoThread(filepath, processamento_id)
+            thread.start()
+            
+            # Redireciona para a página de status
+            return redirect(url_for('status', processamento_id=processamento_id))
+        
+        logger.error(f"Tipo de arquivo não suportado: {arquivo.filename}")
+        flash('Tipo de arquivo não suportado. Por favor, envie um arquivo Excel (.xlsx, .xls) ou CSV (.csv)', 'error')
+        return redirect(url_for('index'))
+    except Exception as e:
+        logger.error(f"Erro no upload: {str(e)}")
+        flash(f'Erro ao processar o arquivo: {str(e)}', 'error')
+        return redirect(url_for('index'))
+
+@app.route('/status/<processamento_id>')
+def status(processamento_id):
+    if processamento_id not in processamentos:
+        flash('Processamento não encontrado', 'error')
+        return redirect(url_for('index'))
+    
+    status = processamentos[processamento_id]
+    
+    # Prepara os dados para o template
+    template_data = {
+        'processamento_id': processamento_id,
+        'status': status,
+        'filename': os.path.basename(status.get('arquivo', '')),
+        'start_time': status.get('start_time', datetime.now().strftime('%H:%M:%S')),
+        'end_time': status.get('end_time', ''),
+        'processing_time': status.get('processing_time', ''),
+        'progress': status.get('progresso', 0),
+        'error_message': status.get('mensagem', ''),
+        'erros': status.get('erros', []),
+        'now': datetime.now(),
+        'steps': {
+            'load_completed': status['progresso'] >= 30,
+            'current_step': 'load' if status['progresso'] < 30 else 'validation' if status['progresso'] < 50 else 'upload' if status['progresso'] < 70 else 'metadata',
+            'load_error': False,
+            'load_message': 'Carregando dados...' if status['progresso'] < 30 else 'Dados carregados com sucesso',
+            'validation_completed': status['progresso'] >= 50,
+            'validation_error': bool(status.get('erros', [])),
+            'validation_message': 'Validando dados...' if status['progresso'] < 50 else 'Validação concluída',
+            'upload_completed': status['progresso'] >= 70,
+            'upload_error': False,
+            'upload_message': 'Enviando para BigQuery...' if status['progresso'] < 70 else 'Envio concluído',
+            'metadata_completed': status['progresso'] >= 100,
+            'metadata_error': False,
+            'metadata_message': 'Gerando metadados...' if status['progresso'] < 100 else 'Metadados gerados'
+        }
+    }
+    
+    # Se o processamento estiver em andamento, não mostra erros
+    if not status.get('concluido', False):
+        template_data['error_message'] = ''
+        template_data['erros'] = []
+    
+    return render_template('processamento.html', **template_data)
+
+@app.route('/progresso/<processamento_id>')
+def progresso(processamento_id):
+    if processamento_id not in processamentos:
+        return jsonify({"erro": "Processamento não encontrado"}), 404
+    
+    status = processamentos[processamento_id]
+    
+    # Se o processamento estiver em andamento, não retorna erros
+    if not status.get('concluido', False):
+        status['mensagem'] = ''
+        status['erros'] = []
+    
+    return jsonify(status)
+
+@app.route('/download_modelo')
+def download_modelo():
+    """Rota para download do arquivo de exemplo."""
+    try:
+        # Cria o arquivo de exemplo
+        from criar_excel_exemplo import criar_excel_exemplo
+        arquivo_exemplo = criar_excel_exemplo()
+        
+        # Retorna o arquivo para download
+        return send_file(
+            arquivo_exemplo,
+            as_attachment=True,
+            download_name="modelo_importacao.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    except Exception as e:
+        logger.error(f"Erro ao gerar arquivo de exemplo: {str(e)}")
+        flash("Erro ao gerar arquivo de exemplo", "error")
+        return redirect(url_for('index'))
+
+def processar_em_linha_de_comando(arquivo_path):
+    """Processa um arquivo no modo de linha de comando."""
+    try:
+        print(f"Processando arquivo: {arquivo_path}")
+        
+        # Carrega os dados
+        print("Carregando dados do Excel...")
+        df = pd.read_excel(arquivo_path)
+        
+        # Aplica transformações
+        print("Aplicando transformações...")
+        df_transformado, erros = transformar_dados(df)
+        
+        if erros:
+            print("Erros encontrados durante a transformação:")
+            for erro in erros:
+                print(f"- {erro}")
+            return
+        
+        # Valida os dados com Great Expectations
+        print("Validando dados com Great Expectations...")
+        context = configurar_contexto_gx()
+        criar_expectations(context, df_transformado)
+        resultado = validar_dados(context, df_transformado)
+        
+        if not resultado:
+            print("Erros encontrados na validação. Processo interrompido.")
+            return
+        
+        # Exporta para BigQuery
+        print("Exportando para BigQuery...")
+        
         # Cria as credenciais a partir do dicionário
         credentials = service_account.Credentials.from_service_account_info(
             BIGQUERY_CREDENTIALS,
@@ -76,7 +638,7 @@ class WorkerThread(QThread):
         # Carrega os dados
         table_ref = client.dataset(dataset_id).table(table_id)
         job = client.load_table_from_dataframe(
-            df, table_ref, job_config=job_config
+            df_transformado, table_ref, job_config=job_config
         )
         job.result()  # Aguarda a conclusão do job
         
@@ -86,8 +648,8 @@ class WorkerThread(QThread):
             "usuario": getpass.getuser(),
             "sistema_operacional": platform.system(),
             "versao_sistema": platform.version(),
-            "arquivo_origem": os.path.basename(self.arquivo_path),
-            "total_registros": len(df),
+            "arquivo_origem": os.path.basename(arquivo_path),
+            "total_registros": len(df_transformado),
             "status": "SUCESSO"
         }
         
@@ -99,104 +661,27 @@ class WorkerThread(QThread):
             df_metadata, metadata_table_ref, job_config=job_config
         )
         metadata_job.result()
-
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Importador de Dados - Controladoria")
-        self.setMinimumSize(800, 600)
         
-        # Widget central
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
+        print("Processo concluído com sucesso!")
         
-        # Labels
-        self.label_arquivo = QLabel("Nenhum arquivo selecionado")
-        
-        # Botões
-        self.btn_arquivo = QPushButton("Selecionar Arquivo Excel")
-        self.btn_processar = QPushButton("Processar")
-        
-        # Barra de progresso
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        
-        # Área de texto para erros
-        self.texto_erros = QTextEdit()
-        self.texto_erros.setReadOnly(True)
-        self.texto_erros.setPlaceholderText("Os erros encontrados serão exibidos aqui...")
-        
-        # Adiciona widgets ao layout
-        layout.addWidget(QLabel("Arquivo Excel:"))
-        layout.addWidget(self.btn_arquivo)
-        layout.addWidget(self.label_arquivo)
-        layout.addSpacing(20)
-        
-        layout.addWidget(self.btn_processar)
-        layout.addWidget(self.progress_bar)
-        layout.addWidget(QLabel("Erros encontrados:"))
-        layout.addWidget(self.texto_erros)
-        
-        # Conecta os botões aos métodos
-        self.btn_arquivo.clicked.connect(self.selecionar_arquivo)
-        self.btn_processar.clicked.connect(self.processar)
-        
-        # Inicializa variáveis
-        self.arquivo_path = None
-        
-    def selecionar_arquivo(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Selecionar Arquivo Excel",
-            "",
-            "Excel Files (*.xlsx *.xls)"
-        )
-        if file_path:
-            self.arquivo_path = file_path
-            self.label_arquivo.setText(os.path.basename(file_path))
-    
-    def processar(self):
-        if not self.arquivo_path:
-            QMessageBox.warning(self, "Aviso", "Selecione um arquivo Excel!")
-            return
-        
-        # Limpa a área de erros
-        self.texto_erros.clear()
-        
-        # Desabilita os botões durante o processamento
-        self.btn_processar.setEnabled(False)
-        self.btn_arquivo.setEnabled(False)
-        
-        # Inicia a thread de processamento
-        self.worker = WorkerThread(self.arquivo_path)
-        self.worker.progress.connect(self.atualizar_progresso)
-        self.worker.finished.connect(self.processamento_finalizado)
-        self.worker.start()
-    
-    def atualizar_progresso(self, valor):
-        self.progress_bar.setValue(valor)
-    
-    def processamento_finalizado(self, sucesso, mensagem, erros):
-        # Reabilita os botões
-        self.btn_processar.setEnabled(True)
-        self.btn_arquivo.setEnabled(True)
-        
-        # Mostra erros se houver
-        if erros:
-            self.texto_erros.setText("\n".join(erros))
-        
-        # Mostra mensagem de resultado
-        if sucesso:
-            QMessageBox.information(self, "Sucesso", mensagem)
-        else:
-            QMessageBox.critical(self, "Erro", mensagem)
+    except Exception as e:
+        print(f"Erro durante o processamento: {str(e)}")
+        raise
 
 def main():
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    # Verificar argumentos de linha de comando
+    if len(sys.argv) > 1:
+        # Modo linha de comando
+        arquivo_path = sys.argv[1]
+        if os.path.exists(arquivo_path):
+            processar_em_linha_de_comando(arquivo_path)
+        else:
+            print(f"Erro: O arquivo {arquivo_path} não existe.")
+    else:
+        # Modo interface web
+        print("Iniciando servidor web na porta 5000...")
+        print("Acesse http://localhost:5000 no seu navegador")
+        app.run(debug=False, host='0.0.0.0', port=5000)
 
 if __name__ == "__main__":
     main() 

@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Processamento - Importador de Dados - Controladoria</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #0d6efd;
+            --secondary-color: #f8f9fa;
+            --success-color: #198754;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --info-color: #0dcaf0;
+            --text-color: #212529;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            color: var(--text-color);
+            padding-top: 20px;
+        }
+        
+        .main-container {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 15px;
+        }
+        
+        .header h1 {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        
+        .header p {
+            font-size: 1.2rem;
+            color: #6c757d;
+        }
+        
+        .processing-info {
+            padding: 20px;
+            background-color: var(--secondary-color);
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .file-details {
+            margin-bottom: 20px;
+        }
+        
+        .progress-container {
+            margin: 30px 0;
+        }
+        
+        .progress {
+            height: 25px;
+            border-radius: 15px;
+        }
+        
+        .step-progress {
+            margin-top: 30px;
+        }
+        
+        .step-item {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            border-left: 5px solid var(--info-color);
+            background-color: rgba(13, 202, 240, 0.1);
+        }
+        
+        .step-item.completed {
+            border-left-color: var(--success-color);
+            background-color: rgba(25, 135, 84, 0.1);
+        }
+        
+        .step-item.active {
+            border-left-color: var(--warning-color);
+            background-color: rgba(255, 193, 7, 0.1);
+        }
+        
+        .step-item.error {
+            border-left-color: var(--danger-color);
+            background-color: rgba(220, 53, 69, 0.1);
+        }
+        
+        .step-icon {
+            font-size: 1.5rem;
+            margin-right: 15px;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            color: white;
+        }
+        
+        .step-icon.pending {
+            background-color: var(--info-color);
+        }
+        
+        .step-icon.active {
+            background-color: var(--warning-color);
+        }
+        
+        .step-icon.completed {
+            background-color: var(--success-color);
+        }
+        
+        .step-icon.error {
+            background-color: var(--danger-color);
+        }
+        
+        .step-details {
+            flex: 1;
+        }
+        
+        .step-title {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .step-description {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        
+        .error-details {
+            background-color: rgba(220, 53, 69, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            border-left: 5px solid var(--danger-color);
+        }
+        
+        .error-title {
+            color: var(--danger-color);
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        .error-message {
+            font-family: 'Courier New', monospace;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        
+        .action-buttons {
+            margin-top: 30px;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-left: 10px;
+        }
+        
+        .status-indicator.pending {
+            background-color: rgba(13, 202, 240, 0.1);
+            color: var(--info-color);
+        }
+        
+        .status-indicator.processing {
+            background-color: rgba(255, 193, 7, 0.1);
+            color: var(--warning-color);
+        }
+        
+        .status-indicator.completed {
+            background-color: rgba(25, 135, 84, 0.1);
+            color: var(--success-color);
+        }
+        
+        .status-indicator.error {
+            background-color: rgba(220, 53, 69, 0.1);
+            color: var(--danger-color);
+        }
+        
+        .download-section {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: rgba(25, 135, 84, 0.1);
+            border-radius: 8px;
+            text-align: center;
+            border-left: 5px solid var(--success-color);
+        }
+        
+        .success-icon {
+            font-size: 3rem;
+            color: var(--success-color);
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-lg-9">
+                <div class="main-container">
+                    <div class="header">
+                        <h1><i class="fas fa-cogs"></i> Processamento</h1>
+                        <p>Acompanhamento em tempo real</p>
+                    </div>
+                    
+                    <div class="processing-info">
+                        <div class="file-details">
+                            <h3>
+                                <i class="fas fa-file-excel"></i> {{ filename }}
+                                <span class="status-indicator {{ 'completed' if status.concluido and status.sucesso else 'error' if status.concluido and not status.sucesso else 'processing' }}">
+                                    {{ 'Concluído' if status.concluido and status.sucesso else 'Erro' if status.concluido and not status.sucesso else 'Em Processamento' }}
+                                </span>
+                            </h3>
+                            <p><strong>ID de Processamento:</strong> {{ processamento_id }}</p>
+                            <p><strong>Iniciado em:</strong> {{ start_time }}</p>
+                            {% if end_time %}
+                                <p><strong>Finalizado em:</strong> {{ end_time }}</p>
+                                <p><strong>Tempo de processamento:</strong> {{ processing_time }}</p>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="progress-container">
+                            <div class="progress">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                     role="progressbar" 
+                                     style="width: {{ progress }}%" 
+                                     aria-valuenow="{{ progress }}" 
+                                     aria-valuemin="0" 
+                                     aria-valuemax="100">
+                                    {{ progress }}%
+                                </div>
+                            </div>
+                            <p class="text-center mt-2">{{ status.mensagem }}</p>
+                        </div>
+                        
+                        {% if status.concluido and not status.sucesso and error_message %}
+                            <div class="error-details">
+                                <h4 class="error-title"><i class="fas fa-exclamation-triangle"></i> Erro no Processamento</h4>
+                                <div class="error-message">{{ error_message }}</div>
+                                {% if erros %}
+                                    <h5 class="mt-3">Detalhes dos Erros:</h5>
+                                    <ul class="list-unstyled">
+                                        {% for erro in erros %}
+                                            <li><i class="fas fa-times-circle text-danger"></i> {{ erro }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                        
+                        {% if status.concluido and status.sucesso %}
+                            <div class="download-section">
+                                <i class="fas fa-check-circle success-icon"></i>
+                                <h4>Processamento Concluído com Sucesso!</h4>
+                                <p>Os arquivos processados foram salvos em: {{ status.mensagem }}</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="step-progress">
+                        <div class="step-item {{ 'completed' if steps.load_completed else 'active' if steps.current_step == 'load' else '' }}">
+                            <div class="step-icon {{ 'completed' if steps.load_completed else 'active' if steps.current_step == 'load' else 'pending' }}">
+                                <i class="fas {{ 'fa-check' if steps.load_completed else 'fa-spinner fa-spin' if steps.current_step == 'load' else 'fa-file' }}"></i>
+                            </div>
+                            <div class="step-details">
+                                <div class="step-title">Carregamento de Dados</div>
+                                <div class="step-description">{{ steps.load_message }}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="step-item {{ 'completed' if steps.validation_completed else 'active' if steps.current_step == 'validation' else '' }}">
+                            <div class="step-icon {{ 'completed' if steps.validation_completed else 'active' if steps.current_step == 'validation' else 'pending' }}">
+                                <i class="fas {{ 'fa-check' if steps.validation_completed else 'fa-spinner fa-spin' if steps.current_step == 'validation' else 'fa-check-circle' }}"></i>
+                            </div>
+                            <div class="step-details">
+                                <div class="step-title">Validação</div>
+                                <div class="step-description">{{ steps.validation_message }}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="step-item {{ 'completed' if steps.upload_completed else 'active' if steps.current_step == 'upload' else '' }}">
+                            <div class="step-icon {{ 'completed' if steps.upload_completed else 'active' if steps.current_step == 'upload' else 'pending' }}">
+                                <i class="fas {{ 'fa-check' if steps.upload_completed else 'fa-spinner fa-spin' if steps.current_step == 'upload' else 'fa-cloud-upload-alt' }}"></i>
+                            </div>
+                            <div class="step-details">
+                                <div class="step-title">Upload para BigQuery</div>
+                                <div class="step-description">{{ steps.upload_message }}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="step-item {{ 'completed' if steps.metadata_completed else 'active' if steps.current_step == 'metadata' else '' }}">
+                            <div class="step-icon {{ 'completed' if steps.metadata_completed else 'active' if steps.current_step == 'metadata' else 'pending' }}">
+                                <i class="fas {{ 'fa-check' if steps.metadata_completed else 'fa-spinner fa-spin' if steps.current_step == 'metadata' else 'fa-database' }}"></i>
+                            </div>
+                            <div class="step-details">
+                                <div class="step-title">Metadados</div>
+                                <div class="step-description">{{ steps.metadata_message }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="action-buttons">
+                        <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Voltar
+                        </a>
+                        {% if status.concluido %}
+                            <a href="{{ url_for('index') }}" class="btn btn-primary">
+                                <i class="fas fa-upload"></i> Novo Upload
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="footer">
+                    <p>Última atualização: {{ now.strftime('%d/%m/%Y %H:%M:%S') }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function atualizarStatus() {
+            fetch('/progresso/{{ processamento_id }}')
+                .then(response => response.json())
+                .then(data => {
+                    // Atualiza a barra de progresso
+                    document.querySelector('.progress-bar').style.width = data.progresso + '%';
+                    document.querySelector('.progress-bar').textContent = data.progresso + '%';
+                    
+                    // Atualiza a mensagem de status
+                    document.querySelector('.progress-container p').textContent = data.mensagem;
+                    
+                    // Atualiza o indicador de status
+                    const statusIndicator = document.querySelector('.status-indicator');
+                    if (data.concluido) {
+                        statusIndicator.className = 'status-indicator ' + (data.sucesso ? 'completed' : 'error');
+                        statusIndicator.textContent = data.sucesso ? 'Concluído' : 'Erro';
+                    }
+                    
+                    // Se o processamento não estiver concluído, continua atualizando
+                    if (!data.concluido) {
+                        setTimeout(atualizarStatus, 1000);
+                    } else {
+                        // Recarrega a página para mostrar o resultado final
+                        window.location.reload();
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro ao atualizar status:', error);
+                    // Se houver erro, tenta novamente em 1 segundo
+                    setTimeout(atualizarStatus, 1000);
+                });
+        }
+        
+        // Inicia a atualização automática
+        if (!{{ status.concluido|tojson }}) {
+            atualizarStatus();
+        }
+    </script>
+</body>
+</html> 
