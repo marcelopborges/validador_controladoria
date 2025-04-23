@@ -4,9 +4,10 @@ Configurações do importador de dados.
 
 import os
 from pathlib import Path
+import json
 
-# Configurações de diretórios
-BASE_DIR = Path(__file__).parent.parent
+# Diretórios base
+BASE_DIR = Path(__file__).parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
 LOG_DIR = BASE_DIR / "logs"
 CONFIG_DIR = BASE_DIR / "config"
@@ -15,27 +16,37 @@ CONFIG_DIR = BASE_DIR / "config"
 for dir_path in [DATA_DIR, LOG_DIR, CONFIG_DIR]:
     dir_path.mkdir(exist_ok=True)
 
-# Configurações do BigQuery
+# Configuração do BigQuery
 BIGQUERY_CONFIG = {
-    "project_id": "gcp-sian-proj-controladoria",
-    "dataset_id": "silver",
-    "table_id": "orcado",
-    "metadata_table_id": "orcado-metadata"
+    "project_id": os.getenv("BIGQUERY_PROJECT_ID", "seu-projeto-id"),
+    "dataset_id": os.getenv("BIGQUERY_DATASET_ID", "seu-dataset-id"),
+    "table_id": os.getenv("BIGQUERY_TABLE_ID", "sua-tabela-id"),
+    "metadata_table_id": os.getenv("BIGQUERY_METADATA_TABLE_ID", "sua-tabela-metadata-id")
 }
 
-# Configurações de credenciais
-BIGQUERY_CREDENTIALS = {
-    "type": "service_account",
-    "project_id": BIGQUERY_CONFIG["project_id"],
-    "private_key_id": os.getenv("BIGQUERY_PRIVATE_KEY_ID"),
-    "private_key": os.getenv("BIGQUERY_PRIVATE_KEY"),
-    "client_email": os.getenv("BIGQUERY_CLIENT_EMAIL"),
-    "client_id": os.getenv("BIGQUERY_CLIENT_ID"),
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_x509_cert_url": os.getenv("BIGQUERY_CLIENT_CERT_URL")
-}
+# Tenta carregar credenciais do arquivo ou usa variáveis de ambiente
+try:
+    credentials_path = CONFIG_DIR / "bigquery-credentials.json"
+    if credentials_path.exists():
+        with open(credentials_path) as f:
+            BIGQUERY_CREDENTIALS = json.load(f)
+    else:
+        # Usa variáveis de ambiente
+        BIGQUERY_CREDENTIALS = {
+            "type": "service_account",
+            "project_id": os.getenv("BIGQUERY_PROJECT_ID"),
+            "private_key_id": os.getenv("BIGQUERY_PRIVATE_KEY_ID"),
+            "private_key": os.getenv("BIGQUERY_PRIVATE_KEY", "").replace("\\n", "\n"),
+            "client_email": os.getenv("BIGQUERY_CLIENT_EMAIL"),
+            "client_id": os.getenv("BIGQUERY_CLIENT_ID"),
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": os.getenv("BIGQUERY_CLIENT_X509_CERT_URL")
+        }
+except Exception as e:
+    print(f"Erro ao carregar credenciais: {e}")
+    BIGQUERY_CREDENTIALS = None
 
 # Configurações de validação
 VALIDATION_CONFIG = {

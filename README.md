@@ -87,7 +87,9 @@ A aplicação permite enviar os dados processados diretamente para o BigQuery. P
 
 ## Configuração das Credenciais
 
-Para configurar as credenciais do BigQuery:
+Existem duas formas de configurar as credenciais do BigQuery:
+
+### 1. Usando arquivo de credenciais (desenvolvimento local)
 
 1. Copie o arquivo `config/bigquery-credentials.example.json` para `config/bigquery-credentials.json`
 2. Substitua os valores no arquivo com suas credenciais do Google Cloud
@@ -97,6 +99,27 @@ Para configurar as credenciais do BigQuery:
 cp config/bigquery-credentials.example.json config/bigquery-credentials.json
 # Edite o arquivo config/bigquery-credentials.json com suas credenciais
 ```
+
+### 2. Usando variáveis de ambiente (recomendado para produção)
+
+Configure as seguintes variáveis de ambiente:
+
+```bash
+# Configurações do BigQuery
+export BIGQUERY_PROJECT_ID=seu-projeto-id
+export BIGQUERY_DATASET_ID=seu-dataset-id
+export BIGQUERY_TABLE_ID=sua-tabela-id
+export BIGQUERY_METADATA_TABLE_ID=sua-tabela-metadata-id
+
+# Credenciais do Service Account
+export BIGQUERY_PRIVATE_KEY_ID=chave-privada-id
+export BIGQUERY_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nSua chave privada aqui\n-----END PRIVATE KEY-----\n"
+export BIGQUERY_CLIENT_EMAIL=seu-service-account@seu-projeto.iam.gserviceaccount.com
+export BIGQUERY_CLIENT_ID=seu-client-id
+export BIGQUERY_CLIENT_X509_CERT_URL=url-do-certificado
+```
+
+**Nota**: Para maior segurança em produção, considere usar um gerenciador de segredos como o Google Secret Manager ou GitHub Secrets.
 
 ## Licença
 
