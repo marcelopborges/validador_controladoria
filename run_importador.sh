@@ -5,4 +5,4 @@ uv pip install -r requirements.txt
 
 # Executa o importador
 echo "Executando o importador..."
-python interface_grafica.py
+python -m importador_controladoria
