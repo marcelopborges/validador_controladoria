@@ -6,25 +6,28 @@ Aplicação para importação, validação e processamento de dados orçamentár
 
 - Validação de dados seguindo regras específicas da controladoria
 - Transformação e padronização de dados (remoção de acentos, conversão para maiúsculas)
-- Interface gráfica moderna para visualização dos dados
+- Interface web moderna para visualização dos dados
 - Suporte para arquivos Excel (.xlsx, .xls)
 - Aplicação de versão para todos os registros via dropdown
 - Rejeição completa de arquivos com erros, exibindo mensagens detalhadas para correção
 - Logs de processamento para auditoria
 - Separação de arquivos processados e rejeitados
 - Compilação para executável Windows (.exe)
+- Integração com BigQuery para armazenamento dos dados
+- Deduplicação automática de registros
+- Processamento em etapas com feedback visual
+- Exportação para CSV e XML
 
 ## Requisitos
 
 - Python 3.8+
 - uv (instalador de pacotes otimizado)
 - Pandas
-- Colorama
-- Tkinter (geralmente já vem com o Python)
+- Flask (para interface web)
 - OpenpyXL (para leitura/escrita de Excel)
 - XLRD (para suporte a arquivos .xls)
 - PyInstaller (apenas para compilação)
-- Pillow (para elementos gráficos)
+- Google Cloud BigQuery (para integração com BigQuery)
 
 ## Instalação
 
@@ -64,10 +67,19 @@ python interface_grafica.py
 
 ## Uso
 
-1. Selecione um arquivo Excel (.xlsx) ou CSV contendo os dados a serem importados
-2. Carregue os dados clicando em "Carregar"
-3. Valide e processe os dados clicando em "Validar e Processar"
-4. Se a validação for bem-sucedida, salve os dados processados ou envie-os para o BigQuery
+1. Acesse a interface web em http://localhost:5000
+2. Selecione um arquivo Excel (.xlsx) ou CSV contendo os dados a serem importados
+3. Carregue os dados clicando em "Carregar"
+4. Valide e processe os dados clicando em "Validar e Processar"
+5. Acompanhe o progresso em tempo real através das etapas:
+   - Carregamento de Dados
+   - Validação
+   - Upload para BigQuery
+   - Metadados
+6. Se a validação for bem-sucedida, os dados serão:
+   - Salvos em CSV e XML na pasta de processados
+   - Enviados para o BigQuery (se configurado)
+   - Gerados metadados do processamento
 
 ## Formato dos Dados
 
@@ -75,7 +87,13 @@ Consulte o arquivo `FORMATO_EXCEL.md` para detalhes sobre o formato esperado dos
 
 ## Regras de Validação
 
-Consulte o arquivo `REGRAS_VALIDACAO.md` para detalhes sobre as regras de validação aplicadas.
+Consulte o arquivo `REGRAS_VALIDACAO.md` para detalhes sobre as regras de validação aplicadas, incluindo:
+
+- Formato da filial (4 dígitos, começando com "0")
+- Formato da data (DD/MM/YYYY)
+- Validação de N_CONTA e N_CENTRO_CUSTO
+- Regras para valores e descrições
+- Formato da versão (YYYY - VX)
 
 ## Envio para BigQuery
 
@@ -83,7 +101,14 @@ A aplicação permite enviar os dados processados diretamente para o BigQuery. P
 
 1. Configure as credenciais do BigQuery em variáveis de ambiente ou no arquivo de configuração
 2. Certifique-se de que o dataset e a tabela já existam no BigQuery
-3. Após processar os dados com sucesso, clique no botão "Enviar para BigQuery"
+3. Após processar os dados com sucesso, os dados serão enviados automaticamente
+
+### Deduplicação no BigQuery
+
+O sistema implementa deduplicação automática usando a seguinte lógica:
+- Chave única: N_CONTA + N_CENTRO_CUSTO + DATA
+- Em caso de duplicidade, mantém o registro mais recente
+- Atualiza registros existentes com novos valores
 
 ## Configuração das Credenciais
 
@@ -138,8 +163,9 @@ importador_controladoria/
 │       ├── __init__.py
 │       ├── config.py       # Configurações do projeto
 │       ├── transformacoes.py # Funções de validação e transformação
+│       ├── interface.py    # Interface web e processamento
 │       └── main.py         # Ponto de entrada principal
-├── interface_grafica.py    # Interface gráfica da aplicação
+├── interface_grafica.py    # Interface web da aplicação
 ├── processar_arquivo.py    # Script para processamento de arquivos via CLI
 ├── setup.py                # Script para compilação do executável
 ├── criar_icone.py          # Script para criar o ícone da aplicação

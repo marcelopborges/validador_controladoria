@@ -11,7 +11,7 @@ Este documento descreve todas as regras de validação e transformação aplicad
 ## Validações por Campo
 
 ### FILIAL
-- **Formato**: 4 dígitos, começando com "01" (ex: 0101, 0102, 0103)
+- **Formato**: 4 dígitos, começando com "0" (ex: 0101, 0102, 0503)
 - **Obrigatório**: Sim
 - **Tipo**: String (texto)
 - **Observação**: Se começar com números, será completado com zeros à esquerda
@@ -67,7 +67,7 @@ Este documento descreve todas as regras de validação e transformação aplicad
 
 ## Como Corrigir Erros Comuns
 
-1. **Filial inválida**: Certifique-se que a filial possui 4 dígitos
+1. **Filial inválida**: Certifique-se que a filial possui 4 dígitos e começa com "0"
 2. **Data inválida**: Use o formato DD/MM/YYYY (ex: 01/01/2024)
 3. **N_Conta inválido**: Verifique se possui 8 dígitos numéricos
 4. **N_Centro_Custo inválido**: Verifique se possui 9 dígitos numéricos
@@ -85,84 +85,3 @@ Os nomes das colunas devem seguir essas regras:
 3. Usar underscore (_) em vez de espaços
    - Exemplo: "N CONTA" deve ser escrito como "N_CONTA"
    - Exemplo: "N CENTRO CUSTO" deve ser escrito como "N_CENTRO_CUSTO"
-
-## Como Utilizar o Importador
-
-### Linha de Comando
-
-```
-python processar_arquivo.py [caminho_do_arquivo]
-```
-
-Exemplo:
-```
-python processar_arquivo.py data/dados.csv
-```
-
-### Interface Gráfica
-
-1. Execute a aplicação gráfica:
-```
-python interface_grafica.py
-```
-
-2. Utilize os recursos da interface:
-   - Use o botão "Procurar..." para selecionar um arquivo Excel (.xlsx ou .xls)
-   - Clique em "Carregar" para visualizar o conteúdo
-   - Selecione o Ano e a Versão desejados nos dropdowns do painel lateral
-   - Clique em "Validar e Processar" para aplicar as regras de validação
-   - Caso haja erros, eles serão exibidos no console da aplicação
-   - Caso os dados sejam válidos, utilize "Salvar Processado" para salvar o arquivo processado
-   - Clique em "Abrir Documentação" para ver este documento de regras
-
-### Executável Windows
-
-Se estiver usando o arquivo executável (.exe):
-
-1. Execute o arquivo ImportadorControladoria.exe
-2. Utilize a interface gráfica conforme instruções acima
-
-## Usando os Dropdowns de Versão
-
-Os dropdowns de versão aplicam a versão selecionada a TODOS os registros quando o botão "Validar e Processar" é clicado:
-
-1. Selecione o ano desejado no dropdown "Ano" (2020-2030)
-2. Selecione a versão no dropdown "Versão" (V1-V20)
-3. Clique em "Validar e Processar" para aplicar a versão e validar os dados
-4. A versão será formatada automaticamente no padrão "YYYY - VX" e aplicada a todos os registros
-
-## Estrutura de Diretórios
-
-- `data/`: Pasta para armazenar os arquivos CSV
-  - `processados/`: Arquivos que passaram na validação
-  - `rejeitados/`: Arquivos que falharam na validação
-- `logs/`: Logs de processamento
-
-## Schema da Tabela
-
-```
-schema = [
-    bigquery.SchemaField("n_conta", "STRING", mode="REQUIRED"),         # Número da conta
-    bigquery.SchemaField("n_centro_custo", "STRING", mode="REQUIRED"),  # Centro de custo
-    bigquery.SchemaField("descricao", "STRING", mode="REQUIRED"),       # Descrição
-    bigquery.SchemaField("valor", "FLOAT64", mode="REQUIRED"),          # Valor
-    bigquery.SchemaField("data", "DATE", mode="REQUIRED"),              # Data
-    bigquery.SchemaField("data_atualizacao", "TIMESTAMP", mode="REQUIRED")  # Data/hora da atualização
-]
-```
-
-## Operação de Merge
-
-```
-MERGE `silver.orcado` T
-USING `silver.orcado_temp` S
-ON T.n_conta = S.n_conta AND T.n_centro_custo = S.n_centro_custo AND T.data = S.data
-WHEN MATCHED THEN
-    UPDATE SET
-        descricao = S.descricao,
-        valor = S.valor,
-        data_atualizacao = CURRENT_TIMESTAMP()
-WHEN NOT MATCHED THEN
-    INSERT (n_conta, n_centro_custo, descricao, valor, data, data_atualizacao)
-    VALUES (S.n_conta, S.n_centro_custo, S.descricao, S.valor, S.data, CURRENT_TIMESTAMP())
-```

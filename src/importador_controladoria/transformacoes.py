@@ -40,12 +40,18 @@ def validar_filial(filial: str) -> Tuple[bool, str]:
     if filial_str.isdigit() and len(filial_str) <= 4:
         # Preenche com zeros à esquerda até ter 4 dígitos
         filial_str = filial_str.zfill(4)
+        # Verifica se começa com "0"
+        if not filial_str.startswith("0"):
+            return False, "Filial deve começar com '0'"
+        return True, filial_str
     else:
         # Extrai apenas os números
         filial_str = re.sub(r'\D', '', filial_str)
         if len(filial_str) != 4:
-            return False, "Filial deve ter 4 dígitos"    
-
+            return False, "Filial deve ter 4 dígitos"
+        if not filial_str.startswith("0"):
+            return False, "Filial deve começar com '0'"
+        return True, filial_str
 
 def formatar_data(data: str) -> Tuple[bool, str]:
     """Formata a data para DD/MM/YYYY."""
@@ -112,10 +118,22 @@ def validar_valor(valor: str) -> Tuple[bool, float]:
         return False, "Valor não pode ser nulo"
     
     try:
-        # Remove caracteres não numéricos exceto ponto e vírgula
-        valor_limpo = re.sub(r'[^\d.,]', '', str(valor))
-        # Substitui vírgula por ponto
+        # Converte para string
+        valor_str = str(valor).strip()
+        
+        # Remove caracteres não numéricos exceto ponto, vírgula e sinal de menos
+        valor_limpo = re.sub(r'[^\d.,-]', '', valor_str)
+        
+        # Se houver mais de um ponto, assume que são separadores de milhares
+        if valor_limpo.count('.') > 1:
+            # Remove todos os pontos exceto o último (que será o separador decimal)
+            partes = valor_limpo.split('.')
+            valor_limpo = ''.join(partes[:-1]) + '.' + partes[-1]
+        
+        # Substitui vírgula por ponto (se houver)
         valor_limpo = valor_limpo.replace(',', '.')
+        
+        # Converte para float
         return True, float(valor_limpo)
     except:
         return False, "Valor inválido"
@@ -185,7 +203,7 @@ def transformar_dados(df: pd.DataFrame) -> Tuple[pd.DataFrame, list]:
     col_n_centro_custo = "N_CENTRO_CUSTO" if "N_CENTRO_CUSTO" in df_transformado.columns else "N CENTRO CUSTO"
     
     # Verifica se as colunas necessárias existem
-    colunas_necessarias = ['FILIAL', 'DATA', 'VALOR', 'DESCRICAO', 'OPERACAO']
+    colunas_necessarias = ['FILIAL', 'DATA', 'VALOR', 'DESCRICAO', 'OPERACAO', 'VERSAO']
     
     # Adiciona os nomes alternativos das colunas
     if col_n_conta not in colunas_necessarias:
@@ -209,13 +227,17 @@ def transformar_dados(df: pd.DataFrame) -> Tuple[pd.DataFrame, list]:
         df_transformado['OPERACAO'] = df_transformado['OPERACAO'].astype(str)
     if 'DESCRICAO' in df_transformado.columns:
         df_transformado['DESCRICAO'] = df_transformado['DESCRICAO'].astype(str)
+    if 'VERSAO' in df_transformado.columns:
+        df_transformado['VERSAO'] = df_transformado['VERSAO'].astype(str)
+    if 'TIPO' in df_transformado.columns:
+        df_transformado['TIPO'] = df_transformado['TIPO'].astype(str)
     
     # Aplica as transformações e validações
     for idx, row in df_transformado.iterrows():
         # FILIAL
         valido, resultado = validar_filial(row['FILIAL'])
         if not valido:
-            erros.append(f"Linha {idx+1}: {resultado} - Valor encontrado: '{row['FILIAL']}'. A filial deve ter 4 dígitos iniciando com '01'.")
+            erros.append(f"Linha {idx+1}: {resultado} - Valor encontrado: '{row['FILIAL']}'. A filial deve ter 4 dígitos iniciando com '0'.")
         else:
             df_transformado.at[idx, 'FILIAL'] = resultado
             
@@ -251,38 +273,42 @@ def transformar_dados(df: pd.DataFrame) -> Tuple[pd.DataFrame, list]:
             erros.append(f"Linha {idx+1}: Coluna de centro de custo não encontrada - Verifique o nome da coluna (esperado: N_CENTRO_CUSTO ou 'N CENTRO CUSTO').")
             
         # OPERACAO
-        valido, resultado = validar_operacao(row['OPERACAO'])
-        if not valido:
-            erros.append(f"Linha {idx+1}: {resultado} - Valor encontrado: '{row['OPERACAO']}'. A operação deve ter no máximo 10 caracteres.")
-        else:
-            df_transformado.at[idx, 'OPERACAO'] = resultado
-            
+        if 'OPERACAO' in df_transformado.columns:
+            valido, resultado = validar_operacao(row['OPERACAO'])
+            if not valido:
+                erros.append(f"Linha {idx+1}: {resultado} - Valor encontrado: '{row['OPERACAO']}'.")
+            else:
+                df_transformado.at[idx, 'OPERACAO'] = resultado
+                
         # VALOR
         valido, resultado = validar_valor(row['VALOR'])
         if not valido:
-            erros.append(f"Linha {idx+1}: {resultado} - Valor encontrado: '{row['VALOR']}'. O valor deve ser um número válido.")
+            erros.append(f"Linha {idx+1}: {resultado} - Valor encontrado: '{row['VALOR']}'.")
         else:
             df_transformado.at[idx, 'VALOR'] = resultado
             
         # DESCRICAO
-        if pd.isna(row['DESCRICAO']):
-            erros.append(f"Linha {idx+1}: Descrição não pode ser nula")
+        valido, resultado = validar_descricao(row['DESCRICAO'])
+        if not valido:
+            erros.append(f"Linha {idx+1}: {resultado} - Valor encontrado: '{row['DESCRICAO']}'.")
         else:
-            # Garante que seja string e trata a descrição
-            if isinstance(row['DESCRICAO'], (int, float)):
-                descricao = str(row['DESCRICAO'])
+            df_transformado.at[idx, 'DESCRICAO'] = resultado
+            
+        # TIPO
+        if 'TIPO' in df_transformado.columns:
+            valido, resultado = validar_tipo(row['TIPO'])
+            if not valido:
+                erros.append(f"Linha {idx+1}: {resultado} - Valor encontrado: '{row['TIPO']}'.")
             else:
-                descricao = row['DESCRICAO']
+                df_transformado.at[idx, 'TIPO'] = resultado
                 
-            # Limita a 100 caracteres
-            descricao = limpar_texto(descricao)[:100]
-            df_transformado.at[idx, 'DESCRICAO'] = descricao
-            
-        # Adiciona colunas TIPO e VERSAO se não existirem
-        if 'TIPO' not in df_transformado.columns:
-            df_transformado.at[idx, 'TIPO'] = 'NORMAL'
-            
-        if 'VERSAO' not in df_transformado.columns:
-            df_transformado.at[idx, 'VERSAO'] = 'V1'
-        
+        # VERSAO
+        if 'VERSAO' in df_transformado.columns:
+            valido, resultado = validar_versao(row['VERSAO'])
+            if not valido:
+                erros.append(f"Linha {idx+1}: {resultado} - Valor encontrado: '{row['VERSAO']}'.")
+            else:
+                df_transformado.at[idx, 'VERSAO'] = resultado
+    
+    # Retorna o DataFrame transformado e a lista de erros
     return df_transformado, erros 

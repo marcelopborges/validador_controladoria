@@ -366,6 +366,49 @@
                         statusIndicator.textContent = data.sucesso ? 'Concluído' : 'Erro';
                     }
                     
+                    // Atualiza as etapas
+                    if (data.steps) {
+                        // Atualiza a etapa de carregamento
+                        const loadStep = document.querySelector('.step-item:nth-child(1)');
+                        const loadIcon = loadStep.querySelector('.step-icon');
+                        const loadMessage = loadStep.querySelector('.step-description');
+                        
+                        loadStep.className = 'step-item ' + (data.steps.load.completed ? 'completed' : data.steps.current_step === 'load' ? 'active' : '');
+                        loadIcon.className = 'step-icon ' + (data.steps.load.completed ? 'completed' : data.steps.current_step === 'load' ? 'active' : 'pending');
+                        loadIcon.innerHTML = `<i class="fas ${data.steps.load.completed ? 'fa-check' : data.steps.current_step === 'load' ? 'fa-spinner fa-spin' : 'fa-file'}"></i>`;
+                        loadMessage.textContent = data.steps.load.message;
+                        
+                        // Atualiza a etapa de validação
+                        const validationStep = document.querySelector('.step-item:nth-child(2)');
+                        const validationIcon = validationStep.querySelector('.step-icon');
+                        const validationMessage = validationStep.querySelector('.step-description');
+                        
+                        validationStep.className = 'step-item ' + (data.steps.validation.completed ? 'completed' : data.steps.current_step === 'validation' ? 'active' : '');
+                        validationIcon.className = 'step-icon ' + (data.steps.validation.completed ? 'completed' : data.steps.current_step === 'validation' ? 'active' : 'pending');
+                        validationIcon.innerHTML = `<i class="fas ${data.steps.validation.completed ? 'fa-check' : data.steps.current_step === 'validation' ? 'fa-spinner fa-spin' : 'fa-check-circle'}"></i>`;
+                        validationMessage.textContent = data.steps.validation.message;
+                        
+                        // Atualiza a etapa de upload
+                        const uploadStep = document.querySelector('.step-item:nth-child(3)');
+                        const uploadIcon = uploadStep.querySelector('.step-icon');
+                        const uploadMessage = uploadStep.querySelector('.step-description');
+                        
+                        uploadStep.className = 'step-item ' + (data.steps.upload.completed ? 'completed' : data.steps.current_step === 'upload' ? 'active' : '');
+                        uploadIcon.className = 'step-icon ' + (data.steps.upload.completed ? 'completed' : data.steps.current_step === 'upload' ? 'active' : 'pending');
+                        uploadIcon.innerHTML = `<i class="fas ${data.steps.upload.completed ? 'fa-check' : data.steps.current_step === 'upload' ? 'fa-spinner fa-spin' : 'fa-cloud-upload-alt'}"></i>`;
+                        uploadMessage.textContent = data.steps.upload.message;
+                        
+                        // Atualiza a etapa de metadados
+                        const metadataStep = document.querySelector('.step-item:nth-child(4)');
+                        const metadataIcon = metadataStep.querySelector('.step-icon');
+                        const metadataMessage = metadataStep.querySelector('.step-description');
+                        
+                        metadataStep.className = 'step-item ' + (data.steps.metadata.completed ? 'completed' : data.steps.current_step === 'metadata' ? 'active' : '');
+                        metadataIcon.className = 'step-icon ' + (data.steps.metadata.completed ? 'completed' : data.steps.current_step === 'metadata' ? 'active' : 'pending');
+                        metadataIcon.innerHTML = `<i class="fas ${data.steps.metadata.completed ? 'fa-check' : data.steps.current_step === 'metadata' ? 'fa-spinner fa-spin' : 'fa-database'}"></i>`;
+                        metadataMessage.textContent = data.steps.metadata.message;
+                    }
+                    
                     // Se o processamento não estiver concluído, continua atualizando
                     if (!data.concluido) {
                         setTimeout(atualizarStatus, 1000);

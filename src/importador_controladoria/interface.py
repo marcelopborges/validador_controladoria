@@ -61,13 +61,34 @@ class ProcessamentoThread(threading.Thread):
             "arquivo": arquivo_path,
             "start_time": datetime.now().strftime('%H:%M:%S'),
             "end_time": "",
-            "processing_time": ""
+            "processing_time": "",
+            "current_step": "load",
+            "steps": {
+                "load": {"completed": False, "error": False, "message": "Carregando dados..."},
+                "validation": {"completed": False, "error": False, "message": "Aguardando validação..."},
+                "upload": {"completed": False, "error": False, "message": "Aguardando upload..."},
+                "metadata": {"completed": False, "error": False, "message": "Aguardando metadados..."}
+            }
         }
         processamentos[processamento_id] = self.status
         
+    def atualizar_etapa(self, etapa, completed=False, error=False, message=None):
+        """Atualiza o status de uma etapa específica."""
+        if etapa in self.status["steps"]:
+            # Mantém a mensagem atual se não for fornecida uma nova
+            if message is None:
+                message = self.status["steps"][etapa]["message"]
+            
+            self.status["steps"][etapa]["completed"] = completed
+            self.status["steps"][etapa]["error"] = error
+            self.status["steps"][etapa]["message"] = message
+            self.status["current_step"] = etapa
+            logger.info(f"Etapa {etapa} atualizada: completed={completed}, error={error}, message={message}")
+    
     def run(self):
         try:
             # Etapa 1: Carregamento dos dados (0-30%)
+            self.atualizar_etapa("load", message="Carregando dados do Excel...")
             self.atualizar_progresso(10, "Carregando dados do Excel...")
             logger.info(f"Carregando arquivo: {self.arquivo_path}")
             df = pd.read_excel(self.arquivo_path)
@@ -77,9 +98,11 @@ class ProcessamentoThread(threading.Thread):
             df.columns = [col.upper() for col in df.columns]
             logger.info(f"Colunas convertidas para maiúsculo: {df.columns.tolist()}")
             
+            self.atualizar_etapa("load", completed=True, message="Dados carregados com sucesso")
             self.atualizar_progresso(30, "Dados carregados e colunas convertidas para maiúsculo")
             
             # Etapa 2: Transformação e Validação (30-60%)
+            self.atualizar_etapa("validation", message="Aplicando transformações...")
             self.atualizar_progresso(40, "Aplicando transformações...")
             logger.info("Iniciando transformação dos dados...")
             df_transformado, erros = transformar_dados(df)
@@ -87,20 +110,31 @@ class ProcessamentoThread(threading.Thread):
             if erros:
                 logger.error(f"Erros encontrados durante a transformação: {erros}")
                 self.status['erros'] = erros
+                self.atualizar_etapa("validation", error=True, message="Erros encontrados na validação")
                 self.finalizar(False, "Foram encontrados erros de validação nos dados", erros)
                 return
             
+            self.atualizar_etapa("validation", completed=True, message="Transformações e validações concluídas")
             self.atualizar_progresso(60, "Transformações e validações concluídas")
             
             # Etapa 3: Exportação para BigQuery (60-90%)
+            self.atualizar_etapa("upload", message="Exportando para BigQuery...")
             self.atualizar_progresso(70, "Exportando para BigQuery...")
             logger.info("Iniciando exportação para BigQuery...")
             
             # Tenta exportar para o BigQuery
             exportou_bigquery = self.exportar_para_bigquery(df_transformado)
             
+            if exportou_bigquery:
+                self.atualizar_etapa("upload", completed=True, message="Dados exportados com sucesso para o BigQuery")
+                self.atualizar_progresso(90, "Dados exportados com sucesso para o BigQuery")
+            else:
+                self.atualizar_etapa("upload", error=True, message="Erro ao exportar para o BigQuery")
+                self.atualizar_progresso(90, "Erro ao exportar para o BigQuery")
+            
             # Etapa 4: Salvamento dos arquivos processados (90-100%)
-            self.atualizar_progresso(90, "Salvando arquivos processados...")
+            self.atualizar_etapa("metadata", message="Salvando arquivos processados...")
+            logger.info("Salvando arquivos processados...")
             
             # Define o prefixo para arquivos processados
             nome_base = os.path.splitext(os.path.basename(self.arquivo_path))[0]
@@ -116,6 +150,10 @@ class ProcessamentoThread(threading.Thread):
             self.exportar_para_xml(df_transformado, arquivo_xml)
             logger.info(f"Dados processados salvos em XML: {arquivo_xml}")
             
+            # Atualiza o status final
+            self.atualizar_etapa("metadata", completed=True, message="Metadados gerados com sucesso")
+            self.atualizar_progresso(100, "Processamento concluído com sucesso")
+            
             # Mensagem final
             if exportou_bigquery:
                 self.finalizar(True, f"Processo concluído com sucesso! Arquivos salvos em {PROCESSED_DIR} e enviados para o BigQuery", [])
@@ -129,6 +167,23 @@ class ProcessamentoThread(threading.Thread):
     def atualizar_progresso(self, valor, mensagem):
         self.status["progresso"] = valor
         self.status["mensagem"] = mensagem
+        
+        # Atualiza o estado das etapas baseado no progresso
+        if valor <= 30:
+            self.atualizar_etapa("load", message=mensagem)
+        elif valor <= 60:
+            self.atualizar_etapa("load", completed=True, message="Dados carregados com sucesso")
+            self.atualizar_etapa("validation", message=mensagem)
+        elif valor <= 90:
+            self.atualizar_etapa("load", completed=True, message="Dados carregados com sucesso")
+            self.atualizar_etapa("validation", completed=True, message="Validação concluída")
+            self.atualizar_etapa("upload", message=mensagem)
+        else:
+            self.atualizar_etapa("load", completed=True, message="Dados carregados com sucesso")
+            self.atualizar_etapa("validation", completed=True, message="Validação concluída")
+            self.atualizar_etapa("upload", completed=True, message="Upload concluído")
+            self.atualizar_etapa("metadata", message=mensagem)
+        
         logger.info(f"Progresso: {valor}% - {mensagem}")
     
     def finalizar(self, sucesso, mensagem, erros):
@@ -145,6 +200,11 @@ class ProcessamentoThread(threading.Thread):
         duration = end - start
         self.status["processing_time"] = str(duration)
         
+        # Garante que todas as etapas estejam marcadas como concluídas
+        for etapa in self.status["steps"]:
+            if not self.status["steps"][etapa]["error"]:
+                self.status["steps"][etapa]["completed"] = True
+        
         logger.info(f"Processamento finalizado - Sucesso: {sucesso} - Mensagem: {mensagem}")
     
     def exportar_para_bigquery(self, df):
@@ -153,7 +213,7 @@ class ProcessamentoThread(threading.Thread):
             # Verifica se o arquivo de credenciais existe
             if not BIGQUERY_CREDENTIALS_PATH.exists():
                 logger.warning(f"Arquivo de credenciais do BigQuery não encontrado em: {BIGQUERY_CREDENTIALS_PATH}")
-                self.atualizar_progresso(90, "Exportação para BigQuery pulada (credenciais não encontradas)")
+                self.atualizar_etapa("upload", completed=True, message="Exportação para BigQuery pulada (credenciais não encontradas)")
                 return True
                 
             # Limpa os dados para remover valores nulos ou problemáticos
@@ -189,6 +249,7 @@ class ProcessamentoThread(threading.Thread):
                 'DESCRICAO': df['DESCRICAO'].astype(str) if 'DESCRICAO' in df.columns else df['descricao'].astype(str),
                 'VALOR': df['VALOR'].astype(float) if 'VALOR' in df.columns else df['valor'].astype(float),
                 'DATA': pd.to_datetime(df['DATA']).dt.date if 'DATA' in df.columns else pd.to_datetime(df['data']).dt.date,
+                'VERSAO': df['VERSAO'].astype(str) if 'VERSAO' in df.columns else df['versao'].astype(str),
                 'DATA_ATUALIZACAO': pd.Timestamp.now()
             })
             
@@ -197,17 +258,17 @@ class ProcessamentoThread(threading.Thread):
             logger.info(f"Colunas do DataFrame BigQuery: {df_bigquery.columns.tolist()}")
             
             # Verifica se todas as colunas necessárias estão presentes
-            colunas_necessarias = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'DATA_ATUALIZACAO']
+            colunas_necessarias = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'VERSAO', 'DATA_ATUALIZACAO']
             colunas_faltantes = [col for col in colunas_necessarias if col not in df_bigquery.columns]
             if colunas_faltantes:
                 logger.error(f"Colunas faltando no DataFrame BigQuery: {colunas_faltantes}")
-                self.atualizar_progresso(90, f"Erro: Colunas faltando no DataFrame BigQuery: {colunas_faltantes}")
+                self.atualizar_etapa("upload", error=True, message=f"Erro: Colunas faltando no DataFrame BigQuery: {colunas_faltantes}")
                 return False
             
             # Verifica se há dados no DataFrame
             if df_bigquery.empty:
                 logger.error("DataFrame BigQuery está vazio")
-                self.atualizar_progresso(90, "Erro: DataFrame BigQuery está vazio")
+                self.atualizar_etapa("upload", error=True, message="Erro: DataFrame BigQuery está vazio")
                 return False
                 
             # Verifica se há valores nulos
@@ -215,7 +276,7 @@ class ProcessamentoThread(threading.Thread):
                 nulos = df_bigquery[col].isnull().sum()
                 if nulos > 0:
                     logger.error(f"Coluna {col} tem {nulos} valores nulos")
-                    self.atualizar_progresso(90, f"Erro: Coluna {col} tem {nulos} valores nulos")
+                    self.atualizar_etapa("upload", error=True, message=f"Erro: Coluna {col} tem {nulos} valores nulos")
                     return False
             
             # Cria as credenciais a partir do arquivo JSON
@@ -227,7 +288,7 @@ class ProcessamentoThread(threading.Thread):
                 logger.info("Credenciais do BigQuery carregadas com sucesso")
             except Exception as e:
                 logger.error(f"Erro ao carregar credenciais do BigQuery: {str(e)}")
-                self.atualizar_progresso(90, f"Erro ao carregar credenciais do BigQuery: {str(e)}")
+                self.atualizar_etapa("upload", error=True, message=f"Erro ao carregar credenciais do BigQuery: {str(e)}")
                 return False
             
             # Inicializa o cliente do BigQuery
@@ -239,13 +300,13 @@ class ProcessamentoThread(threading.Thread):
                 logger.info(f"Cliente BigQuery inicializado com projeto: {BIGQUERY_CONFIG.get('project_id')}")
             except Exception as e:
                 logger.error(f"Erro ao inicializar cliente BigQuery: {str(e)}")
-                self.atualizar_progresso(90, f"Erro ao inicializar cliente BigQuery: {str(e)}")
+                self.atualizar_etapa("upload", error=True, message=f"Erro ao inicializar cliente BigQuery: {str(e)}")
                 return False
             
             # Define o ID do dataset e tabela
-            dataset_id = BIGQUERY_CONFIG.get("dataset_id", "dataset_teste")
-            table_id = BIGQUERY_CONFIG.get("table_id", "tabela_teste")
-            metadata_table_id = BIGQUERY_CONFIG.get("metadata_table_id", "metadata_teste")
+            dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
+            table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
+            metadata_table_id = BIGQUERY_CONFIG.get("metadata_table_id", "ORCADO_METADATA")
             
             # Define o schema da tabela
             schema = [
@@ -254,6 +315,7 @@ class ProcessamentoThread(threading.Thread):
                 bigquery.SchemaField("DESCRICAO", "STRING", mode="REQUIRED"),
                 bigquery.SchemaField("VALOR", "FLOAT64", mode="REQUIRED"),
                 bigquery.SchemaField("DATA", "DATE", mode="REQUIRED"),
+                bigquery.SchemaField("VERSAO", "STRING", mode="REQUIRED"),
                 bigquery.SchemaField("DATA_ATUALIZACAO", "TIMESTAMP", mode="REQUIRED")
             ]
             
@@ -263,7 +325,7 @@ class ProcessamentoThread(threading.Thread):
                 logger.info(f"Dataset {dataset_id} encontrado")
             except Exception as e:
                 logger.error(f"Dataset {dataset_id} não encontrado: {str(e)}")
-                self.atualizar_progresso(90, f"Dataset {dataset_id} não encontrado. Verifique as configurações.")
+                self.atualizar_etapa("upload", error=True, message=f"Dataset {dataset_id} não encontrado. Verifique as configurações.")
                 return False
             
             # Verifica se a tabela existe
@@ -274,7 +336,7 @@ class ProcessamentoThread(threading.Thread):
                 
                 # Verifica se o schema está correto
                 schema_atual = [field.name for field in table.schema]
-                schema_esperado = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'DATA_ATUALIZACAO']
+                schema_esperado = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'VERSAO', 'DATA_ATUALIZACAO']
                 
                 if set(schema_atual) != set(schema_esperado):
                     logger.warning(f"Schema da tabela {table_id} não está correto. Recriando tabela...")
@@ -289,42 +351,77 @@ class ProcessamentoThread(threading.Thread):
                 logger.info(f"Tabela {table_id} criada com sucesso")
             
             # Cria uma tabela temporária para os novos dados
-            temp_table_id = f"{table_id}_temp_{int(time.time())}"
+            temp_table_id = f"temp_{table_id}_{int(time.time())}"
             temp_table_ref = client.dataset(dataset_id).table(temp_table_id)
             
-            # Configura o job para a tabela temporária
-            job_config = bigquery.LoadJobConfig(
-                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-                schema=schema
-            )
+            try:
+                # Configura o job para a tabela temporária
+                job_config = bigquery.LoadJobConfig(
+                    write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+                    schema=schema
+                )
+                
+                # Carrega os dados na tabela temporária
+                job = client.load_table_from_dataframe(
+                    df_bigquery, temp_table_ref, job_config=job_config
+                )
+                job.result()  # Aguarda a conclusão do job
+                
+                # Query para fazer o merge dos dados
+                merge_query = f"""
+                MERGE `{dataset_id}.{table_id}` T
+                USING (
+                    SELECT 
+                        N_CONTA,
+                        N_CENTRO_CUSTO,
+                        DATA,
+                        DESCRICAO,
+                        VALOR,
+                        VERSAO,
+                        CURRENT_TIMESTAMP() as DATA_ATUALIZACAO
+                    FROM `{dataset_id}.{temp_table_id}`
+                    QUALIFY ROW_NUMBER() OVER (
+                        PARTITION BY N_CONTA, N_CENTRO_CUSTO, DATA, VERSAO 
+                        ORDER BY DATA_ATUALIZACAO DESC
+                    ) = 1
+                ) S
+                ON T.N_CONTA = S.N_CONTA 
+                AND T.N_CENTRO_CUSTO = S.N_CENTRO_CUSTO 
+                AND T.DATA = S.DATA
+                AND T.VERSAO = S.VERSAO
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        DESCRICAO = S.DESCRICAO,
+                        VALOR = S.VALOR,
+                        DATA_ATUALIZACAO = CURRENT_TIMESTAMP()
+                WHEN NOT MATCHED THEN
+                    INSERT (N_CONTA, N_CENTRO_CUSTO, DESCRICAO, VALOR, DATA, VERSAO, DATA_ATUALIZACAO)
+                    VALUES (S.N_CONTA, S.N_CENTRO_CUSTO, S.DESCRICAO, S.VALOR, S.DATA, S.VERSAO, CURRENT_TIMESTAMP())
+                """
+                
+                # Executa o merge
+                query_job = client.query(merge_query)
+                query_job.result()
+                
+            finally:
+                # Garante que a tabela temporária seja removida mesmo em caso de erro
+                try:
+                    client.delete_table(temp_table_ref)
+                    logger.info(f"Tabela temporária {temp_table_id} removida com sucesso")
+                except Exception as e:
+                    logger.error(f"Erro ao remover tabela temporária {temp_table_id}: {str(e)}")
             
-            # Carrega os dados na tabela temporária
-            job = client.load_table_from_dataframe(
-                df_bigquery, temp_table_ref, job_config=job_config
-            )
-            job.result()  # Aguarda a conclusão do job
-            
-            # Query para fazer o merge dos dados
-            merge_query = f"""
-            MERGE `{dataset_id}.{table_id}` T
-            USING `{dataset_id}.{temp_table_id}` S
-            ON T.N_CONTA = S.N_CONTA AND T.N_CENTRO_CUSTO = S.N_CENTRO_CUSTO AND T.DATA = S.DATA
-            WHEN MATCHED THEN
-                UPDATE SET
-                    DESCRICAO = S.DESCRICAO,
-                    VALOR = S.VALOR,
-                    DATA_ATUALIZACAO = CURRENT_TIMESTAMP()
-            WHEN NOT MATCHED THEN
-                INSERT (N_CONTA, N_CENTRO_CUSTO, DESCRICAO, VALOR, DATA, DATA_ATUALIZACAO)
-                VALUES (S.N_CONTA, S.N_CENTRO_CUSTO, S.DESCRICAO, S.VALOR, S.DATA, CURRENT_TIMESTAMP())
-            """
-            
-            # Executa o merge
-            query_job = client.query(merge_query)
-            query_job.result()
-            
-            # Remove a tabela temporária
-            client.delete_table(temp_table_ref)
+            # Limpa tabelas temporárias antigas (mais de 1 hora)
+            try:
+                cleanup_query = f"""
+                DELETE FROM `{dataset_id}.__TABLES__`
+                WHERE table_id LIKE 'temp_{table_id}_%'
+                AND creation_time < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)
+                """
+                client.query(cleanup_query).result()
+                logger.info("Limpeza de tabelas temporárias antigas concluída")
+            except Exception as e:
+                logger.error(f"Erro ao limpar tabelas temporárias antigas: {str(e)}")
             
             # Cria e carrega os metadados
             metadata = {
@@ -384,13 +481,13 @@ class ProcessamentoThread(threading.Thread):
             )
             metadata_job.result()
             
-            self.atualizar_progresso(90, "Dados exportados com sucesso!")
+            self.atualizar_etapa("upload", completed=True, message="Dados exportados com sucesso para o BigQuery")
             logger.info("Dados exportados com sucesso para o BigQuery")
             return True
             
         except Exception as e:
             logger.error(f"Erro ao exportar para BigQuery: {str(e)}")
-            self.atualizar_progresso(90, f"Erro ao exportar para BigQuery: {str(e)}")
+            self.atualizar_etapa("upload", error=True, message=f"Erro ao exportar para BigQuery: {str(e)}")
             return False
 
     def exportar_para_xml(self, df, arquivo_xml):
@@ -550,19 +647,19 @@ def status(processamento_id):
         'erros': status.get('erros', []),
         'now': datetime.now(),
         'steps': {
-            'load_completed': status['progresso'] >= 30,
-            'current_step': 'load' if status['progresso'] < 30 else 'validation' if status['progresso'] < 50 else 'upload' if status['progresso'] < 70 else 'metadata',
-            'load_error': False,
-            'load_message': 'Carregando dados...' if status['progresso'] < 30 else 'Dados carregados com sucesso',
-            'validation_completed': status['progresso'] >= 50,
-            'validation_error': bool(status.get('erros', [])),
-            'validation_message': 'Validando dados...' if status['progresso'] < 50 else 'Validação concluída',
-            'upload_completed': status['progresso'] >= 70,
-            'upload_error': False,
-            'upload_message': 'Enviando para BigQuery...' if status['progresso'] < 70 else 'Envio concluído',
-            'metadata_completed': status['progresso'] >= 100,
-            'metadata_error': False,
-            'metadata_message': 'Gerando metadados...' if status['progresso'] < 100 else 'Metadados gerados'
+            'load_completed': status['steps']['load']['completed'],
+            'current_step': status['current_step'],
+            'load_error': status['steps']['load']['error'],
+            'load_message': status['steps']['load']['message'],
+            'validation_completed': status['steps']['validation']['completed'],
+            'validation_error': status['steps']['validation']['error'],
+            'validation_message': status['steps']['validation']['message'],
+            'upload_completed': status['steps']['upload']['completed'],
+            'upload_error': status['steps']['upload']['error'],
+            'upload_message': status['steps']['upload']['message'],
+            'metadata_completed': status['steps']['metadata']['completed'],
+            'metadata_error': status['steps']['metadata']['error'],
+            'metadata_message': status['steps']['metadata']['message']
         }
     }
     

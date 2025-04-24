@@ -18,10 +18,10 @@ for dir_path in [DATA_DIR, LOG_DIR, CONFIG_DIR]:
 
 # Configuração do BigQuery
 BIGQUERY_CONFIG = {
-    "project_id": os.getenv("BIGQUERY_PROJECT_ID", "seu-projeto-id"),
-    "dataset_id": os.getenv("BIGQUERY_DATASET_ID", "seu-dataset-id"),
-    "table_id": os.getenv("BIGQUERY_TABLE_ID", "sua-tabela-id"),
-    "metadata_table_id": os.getenv("BIGQUERY_METADATA_TABLE_ID", "sua-tabela-metadata-id")
+    "project_id": os.getenv("BIGQUERY_PROJECT_ID", "gcp-sian-proj-controladoria"),
+    "dataset_id": os.getenv("BIGQUERY_DATASET_ID", "silver"),
+    "table_id": os.getenv("BIGQUERY_TABLE_ID", "ORCADO"),
+    "metadata_table_id": os.getenv("BIGQUERY_METADATA_TABLE_ID", "ORCADO_METADATA")
 }
 
 # Tenta carregar credenciais do arquivo ou usa variáveis de ambiente
