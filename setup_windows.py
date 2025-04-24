@@ -8,13 +8,71 @@ python setup_windows.py
 Requisitos:
 - PyInstaller: pip install pyinstaller
 - Pillow: pip install pillow
+- pywin32: pip install pywin32 (opcional, para criar atalho)
+- winshell: pip install winshell (opcional, para criar atalho)
 """
 
 import os
 import sys
 import shutil
+import time
 from pathlib import Path
 from PIL import Image
+
+def verificar_ambiente_windows():
+    """Verifica se o ambiente é Windows."""
+    if sys.platform != 'win32':
+        print("ERRO: Este script deve ser executado em um ambiente Windows!")
+        sys.exit(1)
+
+def criar_pastas_necessarias():
+    """Cria as pastas necessárias para o funcionamento da aplicação."""
+    pastas = [
+        "data",
+        "data/processados",
+        "data/rejeitados",
+        "logs"
+    ]
+    
+    for pasta in pastas:
+        Path(pasta).mkdir(parents=True, exist_ok=True)
+        print(f"Pasta criada/verificada: {pasta}")
+
+def limpar_diretorio(caminho):
+    """Limpa um diretório com tratamento de erros."""
+    try:
+        if os.path.exists(caminho):
+            print(f"Limpando {caminho}...")
+            if os.path.isdir(caminho):
+                # Tenta remover arquivos individualmente primeiro
+                for item in os.listdir(caminho):
+                    item_path = os.path.join(caminho, item)
+                    try:
+                        if os.path.isfile(item_path):
+                            os.remove(item_path)
+                        elif os.path.isdir(item_path):
+                            shutil.rmtree(item_path)
+                    except Exception as e:
+                        print(f"Aviso: Não foi possível remover {item_path}: {str(e)}")
+                        # Aguarda um pouco e tenta novamente
+                        time.sleep(1)
+                        try:
+                            if os.path.isfile(item_path):
+                                os.remove(item_path)
+                            elif os.path.isdir(item_path):
+                                shutil.rmtree(item_path)
+                        except:
+                            pass
+                
+                # Tenta remover o diretório
+                try:
+                    shutil.rmtree(caminho)
+                except:
+                    pass
+            else:
+                os.remove(caminho)
+    except Exception as e:
+        print(f"Aviso: Não foi possível limpar {caminho}: {str(e)}")
 
 def converter_png_para_ico(png_path, ico_path):
     """Converte um arquivo PNG para ICO."""
@@ -34,6 +92,12 @@ def converter_png_para_ico(png_path, ico_path):
 
 def main():
     try:
+        # Verifica se está no Windows
+        verificar_ambiente_windows()
+        
+        # Cria pastas necessárias
+        criar_pastas_necessarias()
+        
         # Verifica se o PyInstaller está instalado
         try:
             import PyInstaller
@@ -51,7 +115,7 @@ def main():
             import PIL
         
         # Converte o ícone PNG para ICO
-        png_path = "@icone.png"
+        png_path = "icone.png"  # Corrigido o nome do arquivo
         ico_path = "icon.ico"
         if os.path.exists(png_path):
             print("\nConvertendo ícone PNG para ICO...")
@@ -79,12 +143,7 @@ def main():
         
         # Limpa diretórios anteriores se existirem
         for dir_to_clean in ["build", "dist", f"{nome_app}.spec"]:
-            if os.path.exists(dir_to_clean):
-                print(f"Limpando {dir_to_clean}...")
-                if os.path.isdir(dir_to_clean):
-                    shutil.rmtree(dir_to_clean)
-                else:
-                    os.remove(dir_to_clean)
+            limpar_diretorio(dir_to_clean)
         
         # Comando para o PyInstaller
         cmd = f"""
@@ -93,11 +152,19 @@ def main():
                    --windowed 
                    --noconfirm 
                    --clean 
-                   --add-data="src:src" 
-                   --add-data="REGRAS_VALIDACAO.md:." 
-                   --add-data="README.md:." 
+                   --add-data="src;src" 
+                   --add-data="REGRAS_VALIDACAO.md;." 
+                   --add-data="README.md;." 
                    --hidden-import="openpyxl"
                    --hidden-import="xlrd"
+                   --hidden-import="pandas"
+                   --hidden-import="numpy"
+                   --hidden-import="flask"
+                   --hidden-import="werkzeug"
+                   --hidden-import="jinja2"
+                   --hidden-import="markdown"
+                   --hidden-import="google.cloud.bigquery"
+                   --hidden-import="google.oauth2.service_account"
                    {f'--icon="{ico_path}"' if ico_path else ''}
                    interface_grafica.py
         """
