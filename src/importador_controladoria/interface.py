@@ -37,7 +37,25 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Diretório para salvar os arquivos processados (usando caminho absoluto)
-PROCESSED_DIR = Path(__file__).parent.parent.parent / "data" / "processados"
+def get_data_path():
+    """
+    Obtém o caminho para a pasta data, funcionando tanto em desenvolvimento quanto em produção.
+    """
+    try:
+        # PyInstaller cria um diretório temporário e armazena o caminho em _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # Se não estiver em um executável, usa o diretório do projeto
+        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    
+    # Em produção, a pasta data está no mesmo diretório do executável
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(os.path.dirname(sys.executable), "data")
+    
+    # Em desenvolvimento, usa a pasta data do projeto
+    return os.path.join(base_path, "data")
+
+PROCESSED_DIR = Path(get_data_path()) / "processados"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 CREDENTIALS_DIR = Path(__file__).parent.parent.parent / "config"
 
@@ -689,7 +707,7 @@ def download_modelo():
     """Rota para download do arquivo de exemplo."""
     try:
         # Define o caminho correto do arquivo de exemplo
-        arquivo_exemplo = Path(__file__).parent.parent.parent / "data" / "modelo_importacao.xlsx"
+        arquivo_exemplo = Path(get_data_path()) / "modelo_importacao.xlsx"
         
         if not arquivo_exemplo.exists():
             logger.error(f"Arquivo de exemplo não encontrado em: {arquivo_exemplo}")

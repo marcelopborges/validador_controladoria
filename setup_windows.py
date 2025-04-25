@@ -196,9 +196,22 @@ def main():
                 if os.path.exists(doc_file):
                     shutil.copy2(doc_file, dist_package)
             
-            # Copia arquivo de exemplo
-            if os.path.exists("data/modelo_importacao.xlsx"):
-                shutil.copy2("data/modelo_importacao.xlsx", dist_package)
+            # Copia a pasta data e seu conteúdo
+            data_dir = Path("data")
+            if data_dir.exists():
+                data_dist = dist_package / "data"
+                data_dist.mkdir(exist_ok=True)
+                
+                # Copia arquivos de exemplo
+                for file in data_dir.glob("*"):
+                    if file.is_file():
+                        shutil.copy2(file, data_dist)
+                
+                # Cria subpastas necessárias
+                (data_dist / "processados").mkdir(exist_ok=True)
+                (data_dist / "rejeitados").mkdir(exist_ok=True)
+                
+                print("Pasta data e seus conteúdos copiados para o pacote de distribuição")
             
             # Cria arquivo README_INSTALACAO.txt
             with open(os.path.join(dist_package, "README_INSTALACAO.txt"), "w", encoding="utf-8") as f:
