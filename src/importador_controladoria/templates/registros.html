@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Registros da Tabela ORCADO</h2>
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Voltar
+        </a>
+    </div>
+    
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <!-- Filtros -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Filtros</h5>
+        </div>
+        <div class="card-body">
+            <form method="GET" action="{{ url_for('listar_registros') }}" class="row g-3">
+                <div class="col-md-2">
+                    <label for="n_conta" class="form-label">Conta</label>
+                    <input type="text" class="form-control" id="n_conta" name="n_conta" value="{{ filtros.n_conta }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="n_centro_custo" class="form-label">Centro de Custo</label>
+                    <input type="text" class="form-control" id="n_centro_custo" name="n_centro_custo" value="{{ filtros.n_centro_custo }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="data_inicio" class="form-label">Data Início</label>
+                    <input type="date" class="form-control" id="data_inicio" name="data_inicio" value="{{ filtros.data_inicio }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="data_fim" class="form-label">Data Fim</label>
+                    <input type="date" class="form-control" id="data_fim" name="data_fim" value="{{ filtros.data_fim }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="versao" class="form-label">Versão</label>
+                    <select class="form-select" id="versao" name="versao">
+                        <option value="">Todas</option>
+                        {% for v in versoes %}
+                        <option value="{{ v }}" {% if v == filtros.versao %}selected{% endif %}>{{ v }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">Filtrar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Deletar por Versão -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Deletar por Versão</h5>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('deletar_por_versao') }}" class="row g-3">
+                <div class="col-md-4">
+                    <select class="form-select" name="VERSAO" required>
+                        <option value="">Selecione uma versão</option>
+                        {% for v in versoes %}
+                        <option value="{{ v }}">{{ v }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-danger w-100" onclick="return confirm('Tem certeza que deseja deletar todos os registros desta versão? Esta ação não pode ser desfeita.')">
+                        Deletar Versão
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Tabela de Registros -->
+    <div class="table-responsive">
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Conta</th>
+                    <th>Centro de Custo</th>
+                    <th>Descrição</th>
+                    <th>Valor</th>
+                    <th>Data</th>
+                    <th>Versão</th>
+                    <th>Última Atualização</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for registro in registros %}
+                <tr>
+                    <td>{{ registro.N_CONTA }}</td>
+                    <td>{{ registro.N_CENTRO_CUSTO }}</td>
+                    <td>
+                        <span class="descricao-texto">{{ registro.DESCRICAO }}</span>
+                    </td>
+                    <td>R$ {{ "%.2f"|format(registro.VALOR) }}</td>
+                    <td>{{ registro.DATA }}</td>
+                    <td>{{ registro.VERSAO }}</td>
+                    <td>{{ registro.DATA_ATUALIZACAO }}</td>
+                    <td>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="editarRegistro('{{ registro.N_CONTA }}', '{{ registro.N_CENTRO_CUSTO }}', '{{ registro.DATA }}', '{{ registro.VERSAO }}', '{{ registro.DESCRICAO }}', {{ registro.VALOR }})">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button type="button" class="btn btn-danger btn-sm" onclick="confirmarDelecao('{{ registro.N_CONTA }}', '{{ registro.N_CENTRO_CUSTO }}', '{{ registro.DATA }}', '{{ registro.VERSAO }}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal de Edição -->
+<div class="modal fade" id="editarModal" tabindex="-1" aria-labelledby="editarModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editarModalLabel">Editar Registro</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{{ url_for('editar_registro') }}" method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="N_CONTA" id="edit_N_CONTA">
+                    <input type="hidden" name="N_CENTRO_CUSTO" id="edit_N_CENTRO_CUSTO">
+                    <input type="hidden" name="DATA" id="edit_DATA">
+                    <input type="hidden" name="VERSAO" id="edit_VERSAO">
+                    
+                    <div class="mb-3">
+                        <label for="edit_DESCRICAO" class="form-label">Descrição</label>
+                        <input type="text" class="form-control" id="edit_DESCRICAO" name="DESCRICAO" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="edit_VALOR" class="form-label">Valor</label>
+                        <input type="number" step="0.01" class="form-control" id="edit_VALOR" name="VALOR" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Confirmação de Deleção -->
+<div class="modal fade" id="deletarModal" tabindex="-1" aria-labelledby="deletarModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deletarModalLabel">Confirmar Deleção</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Tem certeza que deseja deletar este registro? Esta ação não pode ser desfeita.</p>
+            </div>
+            <div class="modal-footer">
+                <form action="{{ url_for('deletar_registro') }}" method="POST">
+                    <input type="hidden" name="N_CONTA" id="delete_N_CONTA">
+                    <input type="hidden" name="N_CENTRO_CUSTO" id="delete_N_CENTRO_CUSTO">
+                    <input type="hidden" name="DATA" id="delete_DATA">
+                    <input type="hidden" name="VERSAO" id="delete_VERSAO">
+                    
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">Confirmar Deleção</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function editarRegistro(nConta, nCentroCusto, data, versao, descricao, valor) {
+    document.getElementById('edit_N_CONTA').value = nConta;
+    document.getElementById('edit_N_CENTRO_CUSTO').value = nCentroCusto;
+    document.getElementById('edit_DATA').value = data;
+    document.getElementById('edit_VERSAO').value = versao;
+    document.getElementById('edit_DESCRICAO').value = descricao;
+    document.getElementById('edit_VALOR').value = valor;
+    
+    new bootstrap.Modal(document.getElementById('editarModal')).show();
+}
+
+function confirmarDelecao(nConta, nCentroCusto, data, versao) {
+    document.getElementById('delete_N_CONTA').value = nConta;
+    document.getElementById('delete_N_CENTRO_CUSTO').value = nCentroCusto;
+    document.getElementById('delete_DATA').value = data;
+    document.getElementById('delete_VERSAO').value = versao;
+    
+    new bootstrap.Modal(document.getElementById('deletarModal')).show();
+}
+</script>
+
+<style>
+.descricao-texto {
+    max-width: 200px;
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+</style>
+{% endblock %} 

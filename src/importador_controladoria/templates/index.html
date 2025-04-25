@@ -147,16 +147,11 @@
                         <p>Controladoria - Sistema de Validação e Importação</p>
                     </div>
                     
-                    {% with messages = get_flashed_messages() %}
+                    {% with messages = get_flashed_messages(with_categories=true) %}
                         {% if messages %}
-                            <div class="alert-container">
-                                {% for message in messages %}
-                                    <div class="alert alert-warning alert-dismissible fade show" role="alert">
-                                        {{ message }}
-                                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                                    </div>
-                                {% endfor %}
-                            </div>
+                            {% for category, message in messages %}
+                                <div class="alert alert-{{ category }}">{{ message }}</div>
+                            {% endfor %}
                         {% endif %}
                     {% endwith %}
                     
@@ -199,11 +194,14 @@
                     </div>
                     
                     <div class="mt-4 text-center">
-                        <a href="/regras" class="btn btn-outline-primary" target="_blank">
+                        <a href="{{ url_for('regras') }}" class="btn btn-outline-primary" target="_blank">
                             <i class="fas fa-book"></i> Ver Regras de Validação
                         </a>
-                        <a href="/download_modelo" class="btn btn-outline-success ms-2">
+                        <a href="{{ url_for('download_modelo') }}" class="btn btn-outline-success ms-2">
                             <i class="fas fa-download"></i> Baixar Modelo de Importação
+                        </a>
+                        <a href="{{ url_for('listar_registros') }}" class="btn btn-outline-info ms-2">
+                            <i class="fas fa-database"></i> Gerenciar Registros
                         </a>
                     </div>
                 </div>

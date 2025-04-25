@@ -448,7 +448,8 @@ class ProcessamentoThread(threading.Thread):
                 "VERSAO_SISTEMA": str(platform.version()),
                 "ARQUIVO_ORIGEM": str(os.path.basename(self.arquivo_path)),
                 "TOTAL_REGISTROS": int(len(df)),
-                "STATUS": "SUCESSO"
+                "STATUS": "SUCESSO",
+                "DETALHES": f"Importação de {len(df)} registros do arquivo {os.path.basename(self.arquivo_path)}"
             }
             
             # Cria o DataFrame com tipos explícitos
@@ -459,7 +460,8 @@ class ProcessamentoThread(threading.Thread):
                 "VERSAO_SISTEMA": [metadata["VERSAO_SISTEMA"]],
                 "ARQUIVO_ORIGEM": [metadata["ARQUIVO_ORIGEM"]],
                 "TOTAL_REGISTROS": [metadata["TOTAL_REGISTROS"]],
-                "STATUS": [metadata["STATUS"]]
+                "STATUS": [metadata["STATUS"]],
+                "DETALHES": [metadata["DETALHES"]]
             })
             
             # Define o schema da tabela de metadados
@@ -470,7 +472,8 @@ class ProcessamentoThread(threading.Thread):
                 bigquery.SchemaField("VERSAO_SISTEMA", "STRING", mode="REQUIRED"),
                 bigquery.SchemaField("ARQUIVO_ORIGEM", "STRING", mode="REQUIRED"),
                 bigquery.SchemaField("TOTAL_REGISTROS", "INTEGER", mode="REQUIRED"),
-                bigquery.SchemaField("STATUS", "STRING", mode="REQUIRED")
+                bigquery.SchemaField("STATUS", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("DETALHES", "STRING", mode="REQUIRED")
             ]
             
             # Carrega os metadados
@@ -730,111 +733,394 @@ def download_modelo():
         flash("Erro ao gerar arquivo de exemplo", "error")
         return redirect(url_for('index'))
 
-def processar_em_linha_de_comando(arquivo_path):
-    """Processa um arquivo no modo de linha de comando."""
+@app.route('/registros')
+def listar_registros():
+    """Lista os registros da tabela ORCADO no BigQuery com filtros."""
     try:
-        print(f"Processando arquivo: {arquivo_path}")
+        # Obtém os parâmetros de filtro
+        n_conta = request.args.get('n_conta', '')
+        n_centro_custo = request.args.get('n_centro_custo', '')
+        data_inicio = request.args.get('data_inicio', '')
+        data_fim = request.args.get('data_fim', '')
+        versao = request.args.get('versao', '')
         
-        # Carrega os dados
-        print("Carregando dados do Excel...")
-        df = pd.read_excel(arquivo_path)
-        
-        # Aplica transformações
-        print("Aplicando transformações...")
-        df_transformado, erros = transformar_dados(df)
-        
-        if erros:
-            print("Erros encontrados durante a transformação:")
-            for erro in erros:
-                print(f"- {erro}")
-            return
-        
-        # Valida os dados com Great Expectations
-        print("Validando dados com Great Expectations...")
-        context = configurar_contexto_gx()
-        criar_expectations(context, df_transformado)
-        resultado = validar_dados(context, df_transformado)
-        
-        if not resultado:
-            print("Erros encontrados na validação. Processo interrompido.")
-            return
-        
-        # Exporta para BigQuery
-        print("Exportando para BigQuery...")
-        
-        # Cria as credenciais a partir do dicionário
-        credentials = service_account.Credentials.from_service_account_info(
-            BIGQUERY_CREDENTIALS,
+        # Verifica se o arquivo de credenciais existe
+        if not BIGQUERY_CREDENTIALS_PATH.exists():
+            flash("Credenciais do BigQuery não encontradas", "error")
+            return redirect(url_for('index'))
+            
+        # Cria as credenciais a partir do arquivo JSON
+        credentials = service_account.Credentials.from_service_account_file(
+            BIGQUERY_CREDENTIALS_PATH,
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
         
         # Inicializa o cliente do BigQuery
-        client = bigquery.Client(credentials=credentials)
+        client = bigquery.Client(
+            project=BIGQUERY_CONFIG.get("project_id", "projeto-teste"),
+            credentials=credentials
+        )
         
         # Define o ID do dataset e tabela
-        dataset_id = BIGQUERY_CONFIG["dataset_id"]
-        table_id = BIGQUERY_CONFIG["table_id"]
-        metadata_table_id = BIGQUERY_CONFIG["metadata_table_id"]
+        dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
+        table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
         
-        # Cria o job de carga para os dados
-        job_config = bigquery.LoadJobConfig(
-            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-            autodetect=True
+        # Constrói a query com os filtros
+        query = f"""
+        SELECT 
+            N_CONTA,
+            N_CENTRO_CUSTO,
+            DESCRICAO,
+            VALOR,
+            DATA,
+            VERSAO,
+            DATA_ATUALIZACAO
+        FROM `{dataset_id}.{table_id}`
+        WHERE 1=1
+        """
+        
+        if n_conta:
+            query += f" AND N_CONTA LIKE '%{n_conta}%'"
+        if n_centro_custo:
+            query += f" AND N_CENTRO_CUSTO LIKE '%{n_centro_custo}%'"
+        if data_inicio:
+            query += f" AND DATA >= DATE('{data_inicio}')"
+        if data_fim:
+            query += f" AND DATA <= DATE('{data_fim}')"
+        if versao:
+            query += f" AND VERSAO = '{versao}'"
+            
+        query += " ORDER BY DATA DESC, N_CONTA, N_CENTRO_CUSTO LIMIT 1000"
+        
+        # Executa a query
+        query_job = client.query(query)
+        resultados = query_job.result()
+        
+        # Converte os resultados para uma lista de dicionários
+        registros = []
+        for row in resultados:
+            registro = {
+                'N_CONTA': row.N_CONTA,
+                'N_CENTRO_CUSTO': row.N_CENTRO_CUSTO,
+                'DESCRICAO': row.DESCRICAO,
+                'VALOR': float(row.VALOR),
+                'DATA': row.DATA.strftime('%d/%m/%Y'),
+                'VERSAO': row.VERSAO,
+                'DATA_ATUALIZACAO': row.DATA_ATUALIZACAO.strftime('%d/%m/%Y %H:%M:%S')
+            }
+            registros.append(registro)
+        
+        # Busca as versões disponíveis para o filtro
+        versoes_query = f"""
+        SELECT DISTINCT VERSAO
+        FROM `{dataset_id}.{table_id}`
+        ORDER BY VERSAO DESC
+        """
+        versoes_job = client.query(versoes_query)
+        versoes = [row.VERSAO for row in versoes_job.result()]
+        
+        return render_template('registros.html', 
+                             registros=registros, 
+                             versoes=versoes,
+                             filtros={
+                                 'n_conta': n_conta,
+                                 'n_centro_custo': n_centro_custo,
+                                 'data_inicio': data_inicio,
+                                 'data_fim': data_fim,
+                                 'versao': versao
+                             },
+                             now=datetime.now())
+        
+    except Exception as e:
+        logger.error(f"Erro ao listar registros do BigQuery: {str(e)}")
+        flash(f"Erro ao listar registros: {str(e)}", "error")
+        return redirect(url_for('index'))
+
+@app.route('/registros/editar', methods=['POST'])
+def editar_registro():
+    """Edita um registro na tabela ORCADO e registra a alteração nos metadados."""
+    try:
+        # Obtém os dados do formulário
+        n_conta = request.form.get('N_CONTA')
+        n_centro_custo = request.form.get('N_CENTRO_CUSTO')
+        data = datetime.strptime(request.form.get('DATA'), '%d/%m/%Y').date()
+        versao = request.form.get('VERSAO')
+        descricao = request.form.get('DESCRICAO')
+        valor = float(request.form.get('VALOR'))
+        
+        # Verifica se o arquivo de credenciais existe
+        if not BIGQUERY_CREDENTIALS_PATH.exists():
+            flash("Credenciais do BigQuery não encontradas", "error")
+            return redirect(url_for('listar_registros'))
+            
+        # Cria as credenciais a partir do arquivo JSON
+        credentials = service_account.Credentials.from_service_account_file(
+            BIGQUERY_CREDENTIALS_PATH,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
         
-        # Carrega os dados
-        table_ref = client.dataset(dataset_id).table(table_id)
-        job = client.load_table_from_dataframe(
-            df_transformado, table_ref, job_config=job_config
+        # Inicializa o cliente do BigQuery
+        client = bigquery.Client(
+            project=BIGQUERY_CONFIG.get("project_id", "projeto-teste"),
+            credentials=credentials
         )
-        job.result()  # Aguarda a conclusão do job
         
-        # Cria e carrega os metadados
+        # Define o ID do dataset e tabela
+        dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
+        table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
+        metadata_table_id = BIGQUERY_CONFIG.get("metadata_table_id", "ORCADO_METADATA")
+        
+        # Busca o registro original para comparar as alterações
+        query_original = f"""
+        SELECT DESCRICAO, VALOR
+        FROM `{dataset_id}.{table_id}`
+        WHERE 
+            N_CONTA = '{n_conta}'
+            AND N_CENTRO_CUSTO = '{n_centro_custo}'
+            AND DATA = DATE('{data}')
+            AND VERSAO = '{versao}'
+        """
+        query_job = client.query(query_original)
+        resultado = query_job.result()
+        registro_original = next(resultado, None)
+        
+        if registro_original:
+            # Prepara o registro de metadados com as alterações
+            alteracoes = []
+            if registro_original.DESCRICAO != descricao:
+                alteracoes.append(f"DESCRICAO: '{registro_original.DESCRICAO}' -> '{descricao}'")
+            if float(registro_original.VALOR) != valor:
+                alteracoes.append(f"VALOR: {registro_original.VALOR} -> {valor}")
+            
+            # Query para atualizar o registro
+            query = f"""
+            UPDATE `{dataset_id}.{table_id}`
+            SET 
+                DESCRICAO = '{descricao}',
+                VALOR = {valor},
+                DATA_ATUALIZACAO = CURRENT_TIMESTAMP()
+            WHERE 
+                N_CONTA = '{n_conta}'
+                AND N_CENTRO_CUSTO = '{n_centro_custo}'
+                AND DATA = DATE('{data}')
+                AND VERSAO = '{versao}'
+            """
+            
+            # Executa a query
+            query_job = client.query(query)
+            query_job.result()
+            
+            # Registra a alteração nos metadados
+            if alteracoes:
+                metadata = {
+                    "DATA_IMPORTACAO": pd.Timestamp.now(),
+                    "USUARIO": str(getpass.getuser()),
+                    "SISTEMA_OPERACIONAL": str(platform.system()),
+                    "VERSAO_SISTEMA": str(platform.version()),
+                    "ARQUIVO_ORIGEM": f"EDITADO: {n_conta}/{n_centro_custo}/{data}/{versao}",
+                    "TOTAL_REGISTROS": 1,
+                    "STATUS": "EDITADO",
+                    "DETALHES": f"Alterações: {', '.join(alteracoes)}"
+                }
+                
+                # Cria o DataFrame com tipos explícitos
+                df_metadata = pd.DataFrame({
+                    "DATA_IMPORTACAO": [metadata["DATA_IMPORTACAO"]],
+                    "USUARIO": [metadata["USUARIO"]],
+                    "SISTEMA_OPERACIONAL": [metadata["SISTEMA_OPERACIONAL"]],
+                    "VERSAO_SISTEMA": [metadata["VERSAO_SISTEMA"]],
+                    "ARQUIVO_ORIGEM": [metadata["ARQUIVO_ORIGEM"]],
+                    "TOTAL_REGISTROS": [metadata["TOTAL_REGISTROS"]],
+                    "STATUS": [metadata["STATUS"]],
+                    "DETALHES": [metadata["DETALHES"]]
+                })
+                
+                # Define o schema da tabela de metadados
+                metadata_schema = [
+                    bigquery.SchemaField("DATA_IMPORTACAO", "TIMESTAMP", mode="REQUIRED"),
+                    bigquery.SchemaField("USUARIO", "STRING", mode="REQUIRED"),
+                    bigquery.SchemaField("SISTEMA_OPERACIONAL", "STRING", mode="REQUIRED"),
+                    bigquery.SchemaField("VERSAO_SISTEMA", "STRING", mode="REQUIRED"),
+                    bigquery.SchemaField("ARQUIVO_ORIGEM", "STRING", mode="REQUIRED"),
+                    bigquery.SchemaField("TOTAL_REGISTROS", "INTEGER", mode="REQUIRED"),
+                    bigquery.SchemaField("STATUS", "STRING", mode="REQUIRED"),
+                    bigquery.SchemaField("DETALHES", "STRING", mode="REQUIRED")
+                ]
+                
+                # Configura o job para os metadados
+                metadata_job_config = bigquery.LoadJobConfig(
+                    write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+                    schema=metadata_schema
+                )
+                
+                # Carrega os metadados
+                metadata_table_ref = client.dataset(dataset_id).table(metadata_table_id)
+                metadata_job = client.load_table_from_dataframe(
+                    df_metadata, metadata_table_ref, job_config=metadata_job_config
+                )
+                metadata_job.result()
+            
+            flash("Registro atualizado com sucesso", "success")
+        else:
+            flash("Registro não encontrado", "error")
+        
+    except Exception as e:
+        logger.error(f"Erro ao editar registro no BigQuery: {str(e)}")
+        flash(f"Erro ao editar registro: {str(e)}", "error")
+        
+    return redirect(url_for('listar_registros'))
+
+@app.route('/registros/deletar', methods=['POST'])
+def deletar_registro():
+    """Deleta um registro da tabela ORCADO e registra a deleção nos metadados."""
+    try:
+        # Obtém os dados do formulário
+        n_conta = request.form.get('N_CONTA')
+        n_centro_custo = request.form.get('N_CENTRO_CUSTO')
+        data = datetime.strptime(request.form.get('DATA'), '%d/%m/%Y').date()
+        versao = request.form.get('VERSAO')
+        
+        # Verifica se o arquivo de credenciais existe
+        if not BIGQUERY_CREDENTIALS_PATH.exists():
+            flash("Credenciais do BigQuery não encontradas", "error")
+            return redirect(url_for('listar_registros'))
+            
+        # Cria as credenciais a partir do arquivo JSON
+        credentials = service_account.Credentials.from_service_account_file(
+            BIGQUERY_CREDENTIALS_PATH,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        
+        # Inicializa o cliente do BigQuery
+        client = bigquery.Client(
+            project=BIGQUERY_CONFIG.get("project_id", "projeto-teste"),
+            credentials=credentials
+        )
+        
+        # Define o ID do dataset e tabela
+        dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
+        table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
+        metadata_table_id = BIGQUERY_CONFIG.get("metadata_table_id", "ORCADO_METADATA")
+        
+        # Query para deletar o registro
+        query = f"""
+        DELETE FROM `{dataset_id}.{table_id}`
+        WHERE 
+            N_CONTA = '{n_conta}'
+            AND N_CENTRO_CUSTO = '{n_centro_custo}'
+            AND DATA = DATE('{data}')
+            AND VERSAO = '{versao}'
+        """
+        
+        # Executa a query
+        query_job = client.query(query)
+        query_job.result()
+        
+        # Registra a deleção nos metadados
         metadata = {
-            "data_importacao": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "usuario": getpass.getuser(),
-            "sistema_operacional": platform.system(),
-            "versao_sistema": platform.version(),
-            "arquivo_origem": os.path.basename(arquivo_path),
-            "total_registros": len(df_transformado),
-            "status": "SUCESSO"
+            "DATA_IMPORTACAO": pd.Timestamp.now(),
+            "USUARIO": str(getpass.getuser()),
+            "SISTEMA_OPERACIONAL": str(platform.system()),
+            "VERSAO_SISTEMA": str(platform.version()),
+            "ARQUIVO_ORIGEM": f"DELETADO: {n_conta}/{n_centro_custo}/{data}/{versao}",
+            "TOTAL_REGISTROS": 1,
+            "STATUS": "DELETADO",
+            "DETALHES": "Registro deletado manualmente"
         }
         
-        df_metadata = pd.DataFrame([metadata])
+        # Cria o DataFrame com tipos explícitos
+        df_metadata = pd.DataFrame({
+            "DATA_IMPORTACAO": [metadata["DATA_IMPORTACAO"]],
+            "USUARIO": [metadata["USUARIO"]],
+            "SISTEMA_OPERACIONAL": [metadata["SISTEMA_OPERACIONAL"]],
+            "VERSAO_SISTEMA": [metadata["VERSAO_SISTEMA"]],
+            "ARQUIVO_ORIGEM": [metadata["ARQUIVO_ORIGEM"]],
+            "TOTAL_REGISTROS": [metadata["TOTAL_REGISTROS"]],
+            "STATUS": [metadata["STATUS"]],
+            "DETALHES": [metadata["DETALHES"]]
+        })
+        
+        # Define o schema da tabela de metadados
+        metadata_schema = [
+            bigquery.SchemaField("DATA_IMPORTACAO", "TIMESTAMP", mode="REQUIRED"),
+            bigquery.SchemaField("USUARIO", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("SISTEMA_OPERACIONAL", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("VERSAO_SISTEMA", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("ARQUIVO_ORIGEM", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("TOTAL_REGISTROS", "INTEGER", mode="REQUIRED"),
+            bigquery.SchemaField("STATUS", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("DETALHES", "STRING", mode="REQUIRED")
+        ]
+        
+        # Configura o job para os metadados
+        metadata_job_config = bigquery.LoadJobConfig(
+            write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+            schema=metadata_schema
+        )
         
         # Carrega os metadados
         metadata_table_ref = client.dataset(dataset_id).table(metadata_table_id)
         metadata_job = client.load_table_from_dataframe(
-            df_metadata, metadata_table_ref, job_config=job_config
+            df_metadata, metadata_table_ref, job_config=metadata_job_config
         )
         metadata_job.result()
         
-        print("Processo concluído com sucesso!")
+        flash("Registro deletado com sucesso", "success")
         
     except Exception as e:
-        print(f"Erro durante o processamento: {str(e)}")
-        raise
+        logger.error(f"Erro ao deletar registro no BigQuery: {str(e)}")
+        flash(f"Erro ao deletar registro: {str(e)}", "error")
+        
+    return redirect(url_for('listar_registros'))
 
-def open_browser():
-    """Abre o navegador no endereço do Flask."""
-    webbrowser.open('http://localhost:5000/')
-
-def main():
-    # Verificar argumentos de linha de comando
-    if len(sys.argv) > 1:
-        # Modo linha de comando
-        arquivo_path = sys.argv[1]
-        if os.path.exists(arquivo_path):
-            processar_em_linha_de_comando(arquivo_path)
-        else:
-            print(f"Erro: O arquivo {arquivo_path} não existe.")
-    else:
-        # Modo interface web
-        print("Iniciando servidor web na porta 5000...")
-        print("Acesse http://localhost:5000 no seu navegador")
-        # Abre o navegador após 1.5 segundos (tempo para o servidor iniciar)
-        Timer(1.5, open_browser).start()
-        app.run(debug=False, host='0.0.0.0', port=5000)
+@app.route('/registros/deletar_versao', methods=['POST'])
+def deletar_por_versao():
+    """Deleta todos os registros de uma versão específica."""
+    try:
+        versao = request.form.get('VERSAO')
+        
+        if not versao:
+            flash("Versão não especificada", "error")
+            return redirect(url_for('listar_registros'))
+        
+        # Verifica se o arquivo de credenciais existe
+        if not BIGQUERY_CREDENTIALS_PATH.exists():
+            flash("Credenciais do BigQuery não encontradas", "error")
+            return redirect(url_for('listar_registros'))
+            
+        # Cria as credenciais a partir do arquivo JSON
+        credentials = service_account.Credentials.from_service_account_file(
+            BIGQUERY_CREDENTIALS_PATH,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        
+        # Inicializa o cliente do BigQuery
+        client = bigquery.Client(
+            project=BIGQUERY_CONFIG.get("project_id", "projeto-teste"),
+            credentials=credentials
+        )
+        
+        # Define o ID do dataset e tabela
+        dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
+        table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
+        
+        # Query para deletar os registros
+        query = f"""
+        DELETE FROM `{dataset_id}.{table_id}`
+        WHERE VERSAO = '{versao}'
+        """
+        
+        # Executa a query
+        query_job = client.query(query)
+        query_job.result()
+        
+        flash(f"Todos os registros da versão {versao} foram deletados com sucesso", "success")
+        
+    except Exception as e:
+        logger.error(f"Erro ao deletar registros por versão: {str(e)}")
+        flash(f"Erro ao deletar registros: {str(e)}", "error")
+        
+    return redirect(url_for('listar_registros'))
 
 if __name__ == "__main__":
     main() 
