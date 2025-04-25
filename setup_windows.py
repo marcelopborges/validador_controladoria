@@ -155,6 +155,8 @@ def main():
                    --add-data="src;src" 
                    --add-data="REGRAS_VALIDACAO.md;." 
                    --add-data="README.md;." 
+                   --add-data="data/modelo_importacao.xlsx;data" 
+                   --add-data="data/modelo_importacao.csv;data" 
                    --hidden-import="openpyxl"
                    --hidden-import="xlrd"
                    --hidden-import="pandas"

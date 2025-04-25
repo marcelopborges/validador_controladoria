@@ -42,18 +42,17 @@ def get_data_path():
     Obtém o caminho para a pasta data, funcionando tanto em desenvolvimento quanto em produção.
     """
     try:
-        # PyInstaller cria um diretório temporário e armazena o caminho em _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        # Se não estiver em um executável, usa o diretório do projeto
-        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    
-    # Em produção, a pasta data está no mesmo diretório do executável
-    if hasattr(sys, '_MEIPASS'):
-        return os.path.join(os.path.dirname(sys.executable), "data")
-    
-    # Em desenvolvimento, usa a pasta data do projeto
-    return os.path.join(base_path, "data")
+        # Verifica se está rodando como executável
+        if getattr(sys, 'frozen', False):
+            # Se estiver rodando como executável, a pasta data está no mesmo diretório do executável
+            return os.path.join(os.path.dirname(sys.executable), "data")
+        else:
+            # Se estiver em desenvolvimento, volta 3 níveis para encontrar a pasta data
+            return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "data"))
+    except Exception as e:
+        logger.error(f"Erro ao determinar caminho da pasta data: {str(e)}")
+        # Fallback para o caminho de desenvolvimento
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "data"))
 
 PROCESSED_DIR = Path(get_data_path()) / "processados"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
@@ -706,10 +705,13 @@ def progresso(processamento_id):
 def download_modelo():
     """Rota para download do arquivo de exemplo."""
     try:
-        # Define o caminho correto do arquivo de exemplo
-        arquivo_exemplo = Path(get_data_path()) / "modelo_importacao.xlsx"
+        # Obtém o caminho da pasta data
+        data_path = get_data_path()
+        arquivo_exemplo = os.path.join(data_path, "modelo_importacao.xlsx")
         
-        if not arquivo_exemplo.exists():
+        logger.info(f"Procurando arquivo de exemplo em: {arquivo_exemplo}")
+        
+        if not os.path.exists(arquivo_exemplo):
             logger.error(f"Arquivo de exemplo não encontrado em: {arquivo_exemplo}")
             flash("Arquivo de exemplo não encontrado", "error")
             return redirect(url_for('index'))
