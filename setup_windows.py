@@ -31,7 +31,8 @@ def criar_pastas_necessarias():
         "data",
         "data/processados",
         "data/rejeitados",
-        "logs"
+        "logs",
+        "config"
     ]
     
     for pasta in pastas:
@@ -115,7 +116,7 @@ def main():
             import PIL
         
         # Converte o ícone PNG para ICO
-        png_path = "icone.png"  # Corrigido o nome do arquivo
+        png_path = "icone.png"
         ico_path = "icon.ico"
         if os.path.exists(png_path):
             print("\nConvertendo ícone PNG para ICO...")
@@ -157,6 +158,7 @@ def main():
                    --add-data="README.md;." 
                    --add-data="data/modelo_importacao.xlsx;data" 
                    --add-data="data/modelo_importacao.csv;data" 
+                   --add-data="config;config"
                    --hidden-import="openpyxl"
                    --hidden-import="xlrd"
                    --hidden-import="pandas"
@@ -198,22 +200,27 @@ def main():
                 if os.path.exists(doc_file):
                     shutil.copy2(doc_file, dist_package)
             
-            # Copia a pasta data e seu conteúdo
+            # Cria estrutura de pastas
+            for pasta in ["data", "logs", "config"]:
+                (dist_package / pasta).mkdir(exist_ok=True)
+            
+            # Cria subpastas de data
+            (dist_package / "data" / "processados").mkdir(exist_ok=True)
+            (dist_package / "data" / "rejeitados").mkdir(exist_ok=True)
+            
+            # Copia arquivos de exemplo para a pasta data
             data_dir = Path("data")
             if data_dir.exists():
-                data_dist = dist_package / "data"
-                data_dist.mkdir(exist_ok=True)
-                
-                # Copia arquivos de exemplo
                 for file in data_dir.glob("*"):
                     if file.is_file():
-                        shutil.copy2(file, data_dist)
-                
-                # Cria subpastas necessárias
-                (data_dist / "processados").mkdir(exist_ok=True)
-                (data_dist / "rejeitados").mkdir(exist_ok=True)
-                
-                print("Pasta data e seus conteúdos copiados para o pacote de distribuição")
+                        shutil.copy2(file, dist_package / "data")
+            
+            # Copia arquivo de credenciais se existir
+            cred_path = Path("config/bigquery-credentials.json")
+            if cred_path.exists():
+                shutil.copy2(cred_path, dist_package / "config")
+            
+            print("Estrutura de pastas e arquivos copiados para o pacote de distribuição")
             
             # Cria arquivo README_INSTALACAO.txt
             with open(os.path.join(dist_package, "README_INSTALACAO.txt"), "w", encoding="utf-8") as f:
@@ -226,8 +233,12 @@ INSTRUÇÕES DE INSTALAÇÃO
 
 1. Extraia este pacote para qualquer pasta do seu computador.
 2. Execute o arquivo ImportadorControladoria.exe para iniciar o programa.
-3. As pastas data, logs, data/processados e data/rejeitados são necessárias para o funcionamento.
-   Não remova essas pastas.
+3. A estrutura de pastas deve ser mantida:
+   - data/
+     - processados/
+     - rejeitados/
+   - logs/
+   - config/
 
 UTILIZAÇÃO
 ----------
@@ -241,8 +252,9 @@ UTILIZAÇÃO
 ARQUIVOS IMPORTANTES
 -------------------
 
-- modelo_importacao.xlsx: Exemplo de arquivo Excel no formato correto
+- data/modelo_importacao.xlsx: Exemplo de arquivo Excel no formato correto
 - REGRAS_VALIDACAO.md: Documentação sobre as regras de validação aplicadas
+- config/bigquery-credentials.json: Credenciais do BigQuery (se configurado)
 
 Para mais informações, consulte os arquivos de documentação incluídos.
                 """.strip())

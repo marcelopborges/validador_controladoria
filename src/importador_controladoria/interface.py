@@ -103,6 +103,7 @@ class ProcessamentoThread(threading.Thread):
             logger.info(f"Etapa {etapa} atualizada: completed={completed}, error={error}, message={message}")
     
     def run(self):
+        """Executa o processamento do arquivo."""
         try:
             # Etapa 1: Carregamento dos dados (0-30%)
             self.atualizar_etapa("load", message="Carregando dados do Excel...")
