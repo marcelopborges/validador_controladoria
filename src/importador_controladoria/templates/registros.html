@@ -80,6 +80,37 @@
         </div>
     </div>
     
+    <!-- Deletar por Centro de Custo -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Deletar por Centro de Custo Empresa (4 dígitos, ex: 0101)</h5>
+        </div>
+        <div class="card-body">
+            <form action="{{ url_for('deletar_por_centro_custo') }}" method="post" class="row g-3">
+                <div class="col-md-4">
+                    <input type="text" 
+                           class="form-control" 
+                           id="centro_custo" 
+                           name="CENTRO_CUSTO" 
+                           maxlength="4" 
+                           pattern="[0-9]{4}" 
+                           title="Digite os 4 dígitos do centro de custo da empresa"
+                           oninput="this.value = this.value.replace(/[^0-9]/g, '')"
+                           placeholder="Digite os 4 dígitos">
+                    <small class="form-text text-muted">
+                        O centro de custo deve começar com 0
+                    </small>
+                </div>
+                <div class="col-md-2">
+                    <input type="hidden" name="CENTRO_CUSTO" id="centro_custo_delete">
+                    <button type="submit" class="btn btn-danger w-100" onclick="document.getElementById('centro_custo_delete').value = document.getElementById('centro_custo').value">
+                        Deletar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
     <!-- Tabela de Registros -->
     <div class="table-responsive">
         <table class="table table-striped">

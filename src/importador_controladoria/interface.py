@@ -251,25 +251,22 @@ class ProcessamentoThread(threading.Thread):
             logger.info(f"Colunas do DataFrame: {df.columns.tolist()}")
             
             # Mapeia as colunas do DataFrame para o schema do BigQuery
-            df_bigquery = pd.DataFrame()
-            
-            # Log das colunas originais
-            logger.info(f"Colunas originais do DataFrame: {df.columns.tolist()}")
-            
-            # Converte todas as colunas para maiúsculo
-            df.columns = [col.upper() for col in df.columns]
-            logger.info(f"Colunas convertidas para maiúsculo: {df.columns.tolist()}")
-            
-            # Cria o DataFrame df_bigquery com as colunas corretas
             df_bigquery = pd.DataFrame({
                 'N_CONTA': df['N_CONTA'].astype(str) if 'N_CONTA' in df.columns else df['N CONTA'].astype(str),
-                'N_CENTRO_CUSTO': df['N_CENTRO_CUSTO'].astype(str) if 'N_CENTRO_CUSTO' in df.columns else df['N CENTRO CUSTO'].astype(str),
+                'N_CENTRO_CUSTO': df['N_CENTRO_CUSTO'].astype(str).str.zfill(10) if 'N_CENTRO_CUSTO' in df.columns else df['N CENTRO CUSTO'].astype(str).str.zfill(10),
                 'DESCRICAO': df['DESCRICAO'].astype(str) if 'DESCRICAO' in df.columns else df['descricao'].astype(str),
                 'VALOR': df['VALOR'].astype(float) if 'VALOR' in df.columns else df['valor'].astype(float),
                 'DATA': pd.to_datetime(df['DATA']).dt.date if 'DATA' in df.columns else pd.to_datetime(df['data']).dt.date,
                 'VERSAO': df['VERSAO'].astype(str) if 'VERSAO' in df.columns else df['versao'].astype(str),
                 'DATA_ATUALIZACAO': pd.Timestamp.now()
             })
+            
+            # Verifica se todos os centros de custo têm 10 dígitos
+            centros_custo_invalidos = df_bigquery[~df_bigquery['N_CENTRO_CUSTO'].str.len().isin([10])]
+            if not centros_custo_invalidos.empty:
+                logger.error(f"Centros de custo com formato inválido: {centros_custo_invalidos['N_CENTRO_CUSTO'].tolist()}")
+                self.atualizar_etapa("upload", error=True, message="Erro: Existem centros de custo com formato inválido")
+                return False
             
             logger.info(f"Dados mapeados para BigQuery. Shape: {df_bigquery.shape}")
             logger.info(f"Colunas do DataFrame original: {df.columns.tolist()}")
@@ -385,41 +382,15 @@ class ProcessamentoThread(threading.Thread):
                 )
                 job.result()  # Aguarda a conclusão do job
                 
-                # Query para fazer o merge dos dados
-                merge_query = f"""
-                MERGE `{dataset_id}.{table_id}` T
-                USING (
-                    SELECT 
-                        N_CONTA,
-                        N_CENTRO_CUSTO,
-                        DATA,
-                        DESCRICAO,
-                        VALOR,
-                        VERSAO,
-                        CURRENT_TIMESTAMP() as DATA_ATUALIZACAO
-                    FROM `{dataset_id}.{temp_table_id}`
-                    QUALIFY ROW_NUMBER() OVER (
-                        PARTITION BY N_CONTA, N_CENTRO_CUSTO, DATA, VERSAO 
-                        ORDER BY DATA_ATUALIZACAO DESC
-                    ) = 1
-                ) S
-                ON T.N_CONTA = S.N_CONTA 
-                AND T.N_CENTRO_CUSTO = S.N_CENTRO_CUSTO 
-                AND T.DATA = S.DATA
-                AND T.VERSAO = S.VERSAO
-                WHEN MATCHED THEN
-                    UPDATE SET
-                        DESCRICAO = S.DESCRICAO,
-                        VALOR = S.VALOR,
-                        DATA_ATUALIZACAO = CURRENT_TIMESTAMP()
-                WHEN NOT MATCHED THEN
-                    INSERT (N_CONTA, N_CENTRO_CUSTO, DESCRICAO, VALOR, DATA, VERSAO, DATA_ATUALIZACAO)
-                    VALUES (S.N_CONTA, S.N_CENTRO_CUSTO, S.DESCRICAO, S.VALOR, S.DATA, S.VERSAO, CURRENT_TIMESTAMP())
-                """
-                
-                # Executa o merge
-                query_job = client.query(merge_query)
-                query_job.result()
+                # Copia os dados da tabela temporária para a tabela final
+                copy_job = client.copy_table(
+                    temp_table_ref,
+                    table_ref,
+                    job_config=bigquery.CopyJobConfig(
+                        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE
+                    )
+                )
+                copy_job.result()  # Aguarda a conclusão da cópia
                 
             finally:
                 # Garante que a tabela temporária seja removida mesmo em caso de erro
@@ -479,9 +450,10 @@ class ProcessamentoThread(threading.Thread):
             
             # Carrega os metadados
             metadata_table_ref = client.dataset(dataset_id).table(metadata_table_id)
-            
-            # Verifica se a tabela de metadados existe
+            logger.info(f"Tentando inserir metadados na tabela: {dataset_id}.{metadata_table_id}")
+
             try:
+                # Verifica se a tabela de metadados existe
                 metadata_table = client.get_table(metadata_table_ref)
                 logger.info(f"Tabela de metadados {metadata_table_id} encontrada")
             except Exception as e:
@@ -489,18 +461,20 @@ class ProcessamentoThread(threading.Thread):
                 metadata_table = bigquery.Table(metadata_table_ref, schema=metadata_schema)
                 metadata_table = client.create_table(metadata_table)
                 logger.info(f"Tabela de metadados {metadata_table_id} criada com sucesso")
-            
+
             # Configura o job para os metadados
             metadata_job_config = bigquery.LoadJobConfig(
                 write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
                 schema=metadata_schema
             )
-            
+
             # Carrega os metadados
+            logger.info("Iniciando inserção dos metadados...")
             metadata_job = client.load_table_from_dataframe(
                 df_metadata, metadata_table_ref, job_config=metadata_job_config
             )
             metadata_job.result()
+            logger.info("Metadados inseridos com sucesso na tabela ORCADO_METADATA")
             
             self.atualizar_etapa("upload", completed=True, message="Dados exportados com sucesso para o BigQuery")
             logger.info("Dados exportados com sucesso para o BigQuery")
@@ -981,8 +955,11 @@ def deletar_registro():
         data = datetime.strptime(request.form.get('DATA'), '%d/%m/%Y').date()
         versao = request.form.get('VERSAO')
         
+        logger.info(f"Iniciando deleção de registro: N_CONTA={n_conta}, N_CENTRO_CUSTO={n_centro_custo}, DATA={data}, VERSAO={versao}")
+        
         # Verifica se o arquivo de credenciais existe
         if not BIGQUERY_CREDENTIALS_PATH.exists():
+            logger.error(f"Arquivo de credenciais não encontrado em: {BIGQUERY_CREDENTIALS_PATH}")
             flash("Credenciais do BigQuery não encontradas", "error")
             return redirect(url_for('listar_registros'))
             
@@ -991,12 +968,14 @@ def deletar_registro():
             BIGQUERY_CREDENTIALS_PATH,
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
+        logger.info("Credenciais do BigQuery carregadas com sucesso")
         
         # Inicializa o cliente do BigQuery
         client = bigquery.Client(
             project=BIGQUERY_CONFIG.get("project_id", "projeto-teste"),
             credentials=credentials
         )
+        logger.info(f"Cliente BigQuery inicializado com projeto: {BIGQUERY_CONFIG.get('project_id')}")
         
         # Define o ID do dataset e tabela
         dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
@@ -1013,9 +992,12 @@ def deletar_registro():
             AND VERSAO = '{versao}'
         """
         
+        logger.info(f"Executando query de deleção: {query}")
+        
         # Executa a query
         query_job = client.query(query)
         query_job.result()
+        logger.info("Query de deleção executada com sucesso")
         
         # Registra a deleção nos metadados
         metadata = {
@@ -1028,6 +1010,8 @@ def deletar_registro():
             "STATUS": "DELETADO",
             "DETALHES": "Registro deletado manualmente"
         }
+        
+        logger.info(f"Registrando metadados da deleção: {metadata}")
         
         # Cria o DataFrame com tipos explícitos
         df_metadata = pd.DataFrame({
@@ -1061,10 +1045,31 @@ def deletar_registro():
         
         # Carrega os metadados
         metadata_table_ref = client.dataset(dataset_id).table(metadata_table_id)
+        logger.info(f"Tentando inserir metadados na tabela: {dataset_id}.{metadata_table_id}")
+
+        try:
+            # Verifica se a tabela de metadados existe
+            metadata_table = client.get_table(metadata_table_ref)
+            logger.info(f"Tabela de metadados {metadata_table_id} encontrada")
+        except Exception as e:
+            logger.info(f"Criando tabela de metadados {metadata_table_id}...")
+            metadata_table = bigquery.Table(metadata_table_ref, schema=metadata_schema)
+            metadata_table = client.create_table(metadata_table)
+            logger.info(f"Tabela de metadados {metadata_table_id} criada com sucesso")
+
+        # Configura o job para os metadados
+        metadata_job_config = bigquery.LoadJobConfig(
+            write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+            schema=metadata_schema
+        )
+
+        # Carrega os metadados
+        logger.info("Iniciando inserção dos metadados...")
         metadata_job = client.load_table_from_dataframe(
             df_metadata, metadata_table_ref, job_config=metadata_job_config
         )
         metadata_job.result()
+        logger.info("Metadados inseridos com sucesso na tabela ORCADO_METADATA")
         
         flash("Registro deletado com sucesso", "success")
         
@@ -1119,6 +1124,105 @@ def deletar_por_versao():
         
     except Exception as e:
         logger.error(f"Erro ao deletar registros por versão: {str(e)}")
+        flash(f"Erro ao deletar registros: {str(e)}", "error")
+        
+    return redirect(url_for('listar_registros'))
+
+@app.route('/registros/deletar_centro_custo', methods=['POST'])
+def deletar_por_centro_custo():
+    """Deleta todos os registros de um centro de custo específico."""
+    try:
+        centro_custo = request.form.get('CENTRO_CUSTO')
+        
+        if not centro_custo:
+            flash("Centro de custo não especificado", "error")
+            return redirect(url_for('listar_registros'))
+        
+        # Verifica se o arquivo de credenciais existe
+        if not BIGQUERY_CREDENTIALS_PATH.exists():
+            flash("Credenciais do BigQuery não encontradas", "error")
+            return redirect(url_for('listar_registros'))
+            
+        # Cria as credenciais a partir do arquivo JSON
+        credentials = service_account.Credentials.from_service_account_file(
+            BIGQUERY_CREDENTIALS_PATH,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        
+        # Inicializa o cliente do BigQuery
+        client = bigquery.Client(
+            project=BIGQUERY_CONFIG.get("project_id", "projeto-teste"),
+            credentials=credentials
+        )
+        
+        # Define o ID do dataset e tabela
+        dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
+        table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
+        metadata_table_id = BIGQUERY_CONFIG.get("metadata_table_id", "ORCADO_METADATA")
+        
+        # Query para deletar os registros
+        query = f"""
+        DELETE FROM `{dataset_id}.{table_id}`
+        WHERE N_CENTRO_CUSTO LIKE '{centro_custo}%'
+        """
+        
+        # Executa a query
+        query_job = client.query(query)
+        query_job.result()
+        
+        # Registra a deleção nos metadados
+        metadata = {
+            "DATA_IMPORTACAO": pd.Timestamp.now(),
+            "USUARIO": str(getpass.getuser()),
+            "SISTEMA_OPERACIONAL": str(platform.system()),
+            "VERSAO_SISTEMA": str(platform.version()),
+            "ARQUIVO_ORIGEM": f"DELETADO: Centro de Custo {centro_custo}",
+            "TOTAL_REGISTROS": 0,  # Não sabemos o número exato de registros deletados
+            "STATUS": "DELETADO",
+            "DETALHES": f"Registros deletados para centro de custo iniciando com {centro_custo}"
+        }
+        
+        # Cria o DataFrame com tipos explícitos
+        df_metadata = pd.DataFrame({
+            "DATA_IMPORTACAO": [metadata["DATA_IMPORTACAO"]],
+            "USUARIO": [metadata["USUARIO"]],
+            "SISTEMA_OPERACIONAL": [metadata["SISTEMA_OPERACIONAL"]],
+            "VERSAO_SISTEMA": [metadata["VERSAO_SISTEMA"]],
+            "ARQUIVO_ORIGEM": [metadata["ARQUIVO_ORIGEM"]],
+            "TOTAL_REGISTROS": [metadata["TOTAL_REGISTROS"]],
+            "STATUS": [metadata["STATUS"]],
+            "DETALHES": [metadata["DETALHES"]]
+        })
+        
+        # Define o schema da tabela de metadados
+        metadata_schema = [
+            bigquery.SchemaField("DATA_IMPORTACAO", "TIMESTAMP", mode="REQUIRED"),
+            bigquery.SchemaField("USUARIO", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("SISTEMA_OPERACIONAL", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("VERSAO_SISTEMA", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("ARQUIVO_ORIGEM", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("TOTAL_REGISTROS", "INTEGER", mode="REQUIRED"),
+            bigquery.SchemaField("STATUS", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("DETALHES", "STRING", mode="REQUIRED")
+        ]
+        
+        # Configura o job para os metadados
+        metadata_job_config = bigquery.LoadJobConfig(
+            write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+            schema=metadata_schema
+        )
+        
+        # Carrega os metadados
+        metadata_table_ref = client.dataset(dataset_id).table(metadata_table_id)
+        metadata_job = client.load_table_from_dataframe(
+            df_metadata, metadata_table_ref, job_config=metadata_job_config
+        )
+        metadata_job.result()
+        
+        flash(f"Registros do centro de custo {centro_custo} foram deletados com sucesso", "success")
+        
+    except Exception as e:
+        logger.error(f"Erro ao deletar registros por centro de custo: {str(e)}")
         flash(f"Erro ao deletar registros: {str(e)}", "error")
         
     return redirect(url_for('listar_registros'))
