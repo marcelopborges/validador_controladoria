@@ -253,7 +253,7 @@ class ProcessamentoThread(threading.Thread):
             # Mapeia as colunas do DataFrame para o schema do BigQuery
             df_bigquery = pd.DataFrame({
                 'N_CONTA': df['N_CONTA'].astype(str) if 'N_CONTA' in df.columns else df['N CONTA'].astype(str),
-                'N_CENTRO_CUSTO': df['N_CENTRO_CUSTO'].astype(str).str.zfill(10) if 'N_CENTRO_CUSTO' in df.columns else df['N CENTRO CUSTO'].astype(str).str.zfill(10),
+                'N_CENTRO_CUSTO': df['N_CENTRO_CUSTO'].astype(str) if 'N_CENTRO_CUSTO' in df.columns else df['N CENTRO CUSTO'].astype(str),
                 'DESCRICAO': df['DESCRICAO'].astype(str) if 'DESCRICAO' in df.columns else df['descricao'].astype(str),
                 'VALOR': df['VALOR'].astype(float) if 'VALOR' in df.columns else df['valor'].astype(float),
                 'DATA': pd.to_datetime(df['DATA']).dt.date if 'DATA' in df.columns else pd.to_datetime(df['data']).dt.date,
@@ -261,8 +261,8 @@ class ProcessamentoThread(threading.Thread):
                 'DATA_ATUALIZACAO': pd.Timestamp.now()
             })
             
-            # Verifica se todos os centros de custo têm 10 dígitos
-            centros_custo_invalidos = df_bigquery[~df_bigquery['N_CENTRO_CUSTO'].str.len().isin([10])]
+            # Verifica se todos os centros de custo têm 9 dígitos
+            centros_custo_invalidos = df_bigquery[~df_bigquery['N_CENTRO_CUSTO'].str.len().isin([9])]
             if not centros_custo_invalidos.empty:
                 logger.error(f"Centros de custo com formato inválido: {centros_custo_invalidos['N_CENTRO_CUSTO'].tolist()}")
                 self.atualizar_etapa("upload", error=True, message="Erro: Existem centros de custo com formato inválido")
