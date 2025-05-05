@@ -2,11 +2,44 @@
 
 Este documento descreve todas as regras de validação e transformação aplicadas aos dados antes de serem importados para o BigQuery.
 
+## Tipos de Importação
+
+### Importação Completa
+- Ocorre quando um arquivo contém todos os registros de uma versão
+- Todos os registros existentes da versão são deletados antes da importação
+- O sistema identifica automaticamente como importação completa quando:
+  - Não existem registros da versão no banco
+  - A tabela não existe (primeira importação)
+- Nos metadados, é registrado como:
+  - STATUS: "IMPORTACAO_COMPLETA"
+  - ARQUIVO_ORIGEM: "IMPORTACAO_COMPLETA: nome_do_arquivo.xlsx"
+
+### Atualização Parcial
+- Ocorre quando um arquivo contém apenas alguns registros de uma versão
+- Os registros existentes são atualizados e novos registros são inseridos
+- O sistema identifica como atualização parcial quando:
+  - Já existem registros da versão no banco
+  - O arquivo contém apenas uma parte dos registros
+- Nos metadados, é registrado como:
+  - STATUS: "ATUALIZACAO_PARCIAL"
+  - ARQUIVO_ORIGEM: "ATUALIZACAO_PARCIAL: nome_do_arquivo.xlsx"
+
 ## Regras Gerais
 
 - Nenhuma coluna pode ter acento
 - Não pode ter espaços desnecessários em nenhum campo
 - Todos os textos são convertidos para letras maiúsculas
+
+## Campos Obrigatórios
+- N_CONTA
+- N_CENTRO_CUSTO
+- DESCRICAO
+- VALOR
+- DATA
+- VERSAO
+
+## Campos Opcionais
+- OPERACAO (máximo 10 caracteres)
 
 ## Validações por Campo
 
@@ -64,6 +97,77 @@ Este documento descreve todas as regras de validação e transformação aplicad
 - **Tipo**: String (texto)
 - **Observação**: O ano deve ser um número de 4 dígitos, seguido de " - V" e o número da versão
 - **Interface Gráfica**: Use os dropdowns de Ano e Versão para selecionar a versão a ser aplicada a todos os registros
+
+## Regras por Campo
+
+### N_CONTA
+- Deve ser um número inteiro
+- Não pode ser nulo
+- Deve ter no máximo 10 dígitos
+
+### N_CENTRO_CUSTO
+- Deve ser um número inteiro
+- Não pode ser nulo
+- Deve ter exatamente 9 dígitos
+
+### DESCRICAO
+- Deve ser uma string
+- Não pode ser nula
+- Deve ter no máximo 100 caracteres
+
+### VALOR
+- Deve ser um número decimal
+- Não pode ser nulo
+- Deve ser maior que zero
+- Deve ter no máximo 2 casas decimais
+
+### DATA
+- Deve ser uma data válida
+- Não pode ser nula
+- Formato: DD/MM/AAAA
+
+### VERSAO
+- Deve ser uma string
+- Não pode ser nula
+- Deve ter no máximo 10 caracteres
+
+### OPERACAO
+- Deve ser uma string
+- Pode ser nula
+- Deve ter no máximo 10 caracteres
+- Se preenchida, deve conter apenas letras, números e caracteres especiais permitidos
+
+## Exemplos de Valores Válidos
+
+### N_CONTA
+- 123456
+- 7890123456
+
+### N_CENTRO_CUSTO
+- 123456789
+- 987654321
+
+### DESCRICAO
+- "Material de Escritório"
+- "Serviços de Manutenção"
+
+### VALOR
+- 100.50
+- 1234.56
+
+### DATA
+- 01/01/2024
+- 31/12/2024
+
+### VERSAO
+- "2024.1"
+- "REV1"
+
+### OPERACAO
+- "INSERT"
+- "UPDATE"
+- "DELETE"
+- "MERGE"
 
 ## Como Corrigir Erros Comuns
 

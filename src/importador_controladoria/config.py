@@ -26,7 +26,7 @@ BIGQUERY_CONFIG = {
 
 # Tenta carregar credenciais do arquivo ou usa variáveis de ambiente
 try:
-    credentials_path = CONFIG_DIR / "bigquery-credentials.json"
+    credentials_path = BASE_DIR / "config" / "bigquery-credentials.json"
     if credentials_path.exists():
         with open(credentials_path) as f:
             BIGQUERY_CREDENTIALS = json.load(f)

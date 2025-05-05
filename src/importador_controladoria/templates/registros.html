@@ -49,8 +49,15 @@
                         {% endfor %}
                     </select>
                 </div>
+                <div class="col-md-2">
+                    <label for="operacao" class="form-label">Operação</label>
+                    <input type="text" class="form-control" id="operacao" name="operacao" value="{{ filtros.operacao }}">
+                </div>
                 <div class="col-md-2 d-flex align-items-end gap-2">
                     <button type="submit" class="btn btn-primary flex-grow-1">Filtrar</button>
+                    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deletarFiltrosModal">
+                        <i class="fas fa-trash"></i>
+                    </button>
                     <a href="{{ url_for('exportar_excel', n_conta=filtros.n_conta, n_centro_custo=filtros.n_centro_custo, data_inicio=filtros.data_inicio, data_fim=filtros.data_fim, versao=filtros.versao) }}" class="btn btn-success">
                         <i class="fas fa-file-excel"></i>
                     </a>
@@ -75,7 +82,7 @@
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <button type="submit" class="btn btn-danger w-100" onclick="return confirm('Tem certeza que deseja deletar todos os registros desta versão? Esta ação não pode ser desfeita.')">
+                    <button type="button" class="btn btn-danger w-100" data-bs-toggle="modal" data-bs-target="#deletarVersaoModal">
                         Deletar Versão
                     </button>
                 </div>
@@ -97,16 +104,16 @@
                            name="CENTRO_CUSTO" 
                            maxlength="4" 
                            pattern="[0-9]{4}" 
-                           title="Digite os 4 dígitos do centro de custo da empresa"
+                           title="Digite os 4 dígitos da filial (ex: 0101)"
                            oninput="this.value = this.value.replace(/[^0-9]/g, '')"
                            placeholder="Digite os 4 dígitos">
                     <small class="form-text text-muted">
-                        O centro de custo deve começar com 0
+                        Digite os 4 dígitos da filial (ex: 0101). Serão deletados todos os centros de custo que começam com os 3 últimos dígitos.
                     </small>
                 </div>
                 <div class="col-md-2">
                     <input type="hidden" name="CENTRO_CUSTO" id="centro_custo_delete">
-                    <button type="submit" class="btn btn-danger w-100" onclick="document.getElementById('centro_custo_delete').value = document.getElementById('centro_custo').value">
+                    <button type="button" class="btn btn-danger w-100" onclick="atualizarFilial()" data-bs-toggle="modal" data-bs-target="#deletarFilialModal">
                         Deletar
                     </button>
                 </div>
@@ -116,6 +123,29 @@
     
     <!-- Tabela de Registros -->
     <div class="table-responsive">
+        <!-- Contador e Aviso de Limite -->
+        <div class="alert alert-info mb-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Total de registros encontrados:</strong> {{ registros|length }}
+                    {% if registros|length >= 1000 %}
+                    <span class="text-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Apenas os primeiros 1000 registros estão sendo exibidos
+                    </span>
+                    {% endif %}
+                </div>
+                {% if registros|length >= 1000 %}
+                <div>
+                    <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#ajudaModal">
+                        <i class="fas fa-question-circle"></i> Como ver mais registros?
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
         <table class="table table-striped">
             <thead>
                 <tr>
@@ -125,6 +155,7 @@
                     <th>Valor</th>
                     <th>Data</th>
                     <th>Versão</th>
+                    <th>Operação</th>
                     <th>Última Atualização</th>
                     <th>Ações</th>
                 </tr>
@@ -140,6 +171,7 @@
                     <td>R$ {{ "%.2f"|format(registro.VALOR) }}</td>
                     <td>{{ registro.DATA }}</td>
                     <td>{{ registro.VERSAO }}</td>
+                    <td>{{ registro.OPERACAO }}</td>
                     <td>{{ registro.DATA_ATUALIZACAO }}</td>
                     <td>
                         <button type="button" class="btn btn-primary btn-sm" onclick="editarRegistro('{{ registro.N_CONTA }}', '{{ registro.N_CENTRO_CUSTO }}', '{{ registro.DATA }}', '{{ registro.VERSAO }}', '{{ registro.DESCRICAO }}', {{ registro.VALOR }})">
@@ -216,6 +248,171 @@
     </div>
 </div>
 
+<!-- Modal de Ajuda -->
+<div class="modal fade" id="ajudaModal" tabindex="-1" aria-labelledby="ajudaModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="ajudaModalLabel">Como ver mais registros?</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Para ver mais registros, você pode:</p>
+                <ol>
+                    <li>Usar os filtros para reduzir o número de registros</li>
+                    <li>Exportar para Excel para ver todos os registros</li>
+                    <li>Especificar um período de datas mais curto</li>
+                    <li>Filtrar por uma versão específica</li>
+                </ol>
+                <p class="mb-0"><strong>Dica:</strong> Use a combinação de filtros para encontrar exatamente o que precisa.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Confirmação de Deleção por Filtros -->
+<div class="modal fade" id="deletarFiltrosModal" tabindex="-1" aria-labelledby="deletarFiltrosModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deletarFiltrosModalLabel">
+                    <i class="fas fa-exclamation-triangle"></i> Confirmar Deleção
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <h6 class="alert-heading">ATENÇÃO!</h6>
+                    <p class="mb-0">Esta ação irá deletar TODOS os registros que correspondem aos filtros aplicados.</p>
+                </div>
+                
+                <h6>Filtros atuais:</h6>
+                <ul class="list-group mb-3">
+                    {% if filtros.n_conta %}
+                    <li class="list-group-item">Conta: {{ filtros.n_conta }}</li>
+                    {% endif %}
+                    {% if filtros.n_centro_custo %}
+                    <li class="list-group-item">Centro de Custo: {{ filtros.n_centro_custo }}</li>
+                    {% endif %}
+                    {% if filtros.data_inicio %}
+                    <li class="list-group-item">Data Início: {{ filtros.data_inicio }}</li>
+                    {% endif %}
+                    {% if filtros.data_fim %}
+                    <li class="list-group-item">Data Fim: {{ filtros.data_fim }}</li>
+                    {% endif %}
+                    {% if filtros.versao %}
+                    <li class="list-group-item">Versão: {{ filtros.versao }}</li>
+                    {% endif %}
+                </ul>
+                
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <strong>Importante:</strong> Esta ação NÃO pode ser desfeita.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <form action="{{ url_for('deletar_por_filtros') }}" method="POST">
+                    <input type="hidden" name="n_conta" value="{{ filtros.n_conta }}">
+                    <input type="hidden" name="n_centro_custo" value="{{ filtros.n_centro_custo }}">
+                    <input type="hidden" name="data_inicio" value="{{ filtros.data_inicio }}">
+                    <input type="hidden" name="data_fim" value="{{ filtros.data_fim }}">
+                    <input type="hidden" name="versao" value="{{ filtros.versao }}">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Confirmar Deleção
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Confirmação de Deleção por Versão -->
+<div class="modal fade" id="deletarVersaoModal" tabindex="-1" aria-labelledby="deletarVersaoModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deletarVersaoModalLabel">
+                    <i class="fas fa-exclamation-triangle"></i> Confirmar Deleção por Versão
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <h6 class="alert-heading">ATENÇÃO!</h6>
+                    <p class="mb-0">Esta ação irá deletar TODOS os registros da versão selecionada.</p>
+                </div>
+                
+                <h6>Versão selecionada:</h6>
+                <ul class="list-group mb-3">
+                    <li class="list-group-item" id="versaoSelecionada"></li>
+                </ul>
+                
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <strong>Importante:</strong> Esta ação NÃO pode ser desfeita.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <form action="{{ url_for('deletar_por_versao') }}" method="POST">
+                    <input type="hidden" name="VERSAO" id="versaoDelete">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Confirmar Deleção
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Confirmação de Deleção por Filial -->
+<div class="modal fade" id="deletarFilialModal" tabindex="-1" aria-labelledby="deletarFilialModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deletarFilialModalLabel">
+                    <i class="fas fa-exclamation-triangle"></i> Confirmar Deleção por Filial
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <h6 class="alert-heading">ATENÇÃO!</h6>
+                    <p class="mb-0">Esta ação irá deletar TODOS os registros dos centros de custo que começam com os 3 últimos dígitos da filial.</p>
+                </div>
+                
+                <h6>Informações:</h6>
+                <ul class="list-group mb-3">
+                    <li class="list-group-item">
+                        <strong>Filial digitada:</strong> <span id="filialDigitada"></span>
+                    </li>
+                    <li class="list-group-item">
+                        <strong>Centros de custo afetados:</strong> Todos que começam com <span id="centroCustoBase"></span>
+                    </li>
+                </ul>
+                
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <strong>Importante:</strong> Esta ação NÃO pode ser desfeita.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <form action="{{ url_for('deletar_por_centro_custo') }}" method="POST">
+                    <input type="hidden" name="CENTRO_CUSTO" id="centroCustoDelete">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Confirmar Deleção
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 function editarRegistro(nConta, nCentroCusto, data, versao, descricao, valor) {
     document.getElementById('edit_N_CONTA').value = nConta;
@@ -236,6 +433,41 @@ function confirmarDelecao(nConta, nCentroCusto, data, versao) {
     
     new bootstrap.Modal(document.getElementById('deletarModal')).show();
 }
+
+// Função para atualizar o modal de deleção por versão
+document.querySelector('select[name="VERSAO"]').addEventListener('change', function() {
+    const versao = this.value;
+    document.getElementById('versaoDelete').value = versao;
+    document.getElementById('versaoSelecionada').textContent = versao;
+});
+
+// Função para extrair os 3 últimos dígitos da filial
+function extrairCentroCustoBase(filial) {
+    if (filial && filial.length === 4) {
+        return filial.substring(1); // Pega os 3 últimos dígitos
+    }
+    return '';
+}
+
+// Função para atualizar a filial no modal
+function atualizarFilial() {
+    const filial = document.getElementById('centro_custo').value;
+    const centroCustoBase = extrairCentroCustoBase(filial);
+    
+    document.getElementById('centroCustoDelete').value = centroCustoBase;
+    document.getElementById('filialDigitada').textContent = filial;
+    document.getElementById('centroCustoBase').textContent = centroCustoBase;
+}
+
+// Atualiza o modal quando a filial é digitada
+document.getElementById('centro_custo').addEventListener('input', function() {
+    const filial = this.value;
+    const centroCustoBase = extrairCentroCustoBase(filial);
+    
+    document.getElementById('centroCustoDelete').value = centroCustoBase;
+    document.getElementById('filialDigitada').textContent = filial;
+    document.getElementById('centroCustoBase').textContent = centroCustoBase;
+});
 </script>
 
 <style>
@@ -245,6 +477,24 @@ function confirmarDelecao(nConta, nCentroCusto, data, versao) {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+.alert {
+}
+.modal-header.bg-danger {
+    background-color: #dc3545;
+}
+.btn-close-white {
+    filter: brightness(0) invert(1);
+}
+.alert-danger {
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+    color: #721c24;
+}
+.alert-warning {
+    background-color: #fff3cd;
+    border-color: #ffeeba;
+    color: #856404;
 }
 </style>
 {% endblock %} 

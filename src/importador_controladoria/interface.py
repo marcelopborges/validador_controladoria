@@ -245,7 +245,7 @@ class ProcessamentoThread(threading.Thread):
                 
             # Garante que a coluna OPERACAO está preenchida
             if 'OPERACAO' in df.columns:
-                df['OPERACAO'] = df['OPERACAO'].fillna('')
+                df['OPERACAO'] = df['OPERACAO'].astype(str)
                 
             logger.info(f"Dados limpos para BigQuery. Shape: {df.shape}")
             logger.info(f"Colunas do DataFrame: {df.columns.tolist()}")
@@ -258,6 +258,7 @@ class ProcessamentoThread(threading.Thread):
                 'VALOR': df['VALOR'].astype(float) if 'VALOR' in df.columns else df['valor'].astype(float),
                 'DATA': pd.to_datetime(df['DATA']).dt.date if 'DATA' in df.columns else pd.to_datetime(df['data']).dt.date,
                 'VERSAO': df['VERSAO'].astype(str) if 'VERSAO' in df.columns else df['versao'].astype(str),
+                'OPERACAO': df['OPERACAO'].astype(str) if 'OPERACAO' in df.columns else '',
                 'DATA_ATUALIZACAO': pd.Timestamp.now()
             })
             
@@ -273,7 +274,7 @@ class ProcessamentoThread(threading.Thread):
             logger.info(f"Colunas do DataFrame BigQuery: {df_bigquery.columns.tolist()}")
             
             # Verifica se todas as colunas necessárias estão presentes
-            colunas_necessarias = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'VERSAO', 'DATA_ATUALIZACAO']
+            colunas_necessarias = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'VERSAO', 'OPERACAO', 'DATA_ATUALIZACAO']
             colunas_faltantes = [col for col in colunas_necessarias if col not in df_bigquery.columns]
             if colunas_faltantes:
                 logger.error(f"Colunas faltando no DataFrame BigQuery: {colunas_faltantes}")
@@ -331,12 +332,34 @@ class ProcessamentoThread(threading.Thread):
                 bigquery.SchemaField("VALOR", "FLOAT64", mode="REQUIRED"),
                 bigquery.SchemaField("DATA", "DATE", mode="REQUIRED"),
                 bigquery.SchemaField("VERSAO", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("OPERACAO", "STRING", mode="NULLABLE"),
                 bigquery.SchemaField("DATA_ATUALIZACAO", "TIMESTAMP", mode="REQUIRED")
             ]
             
             # Obtém a versão dos dados que estão sendo importados
             versao_importacao = df_bigquery['VERSAO'].iloc[0]
             logger.info(f"Importando dados da versão: {versao_importacao}")
+            
+            # Verifica se é uma importação completa ou parcial
+            try:
+                # Conta quantos registros existem na versão atual
+                count_query = f"""
+                SELECT COUNT(*) as total
+                FROM `{dataset_id}.{table_id}`
+                WHERE VERSAO = '{versao_importacao}'
+                """
+                count_job = client.query(count_query)
+                count_result = count_job.result()
+                registros_existentes = next(count_result).total
+                
+                # Se não existem registros, é uma importação completa
+                is_importacao_completa = registros_existentes == 0
+                logger.info(f"Registros existentes na versão {versao_importacao}: {registros_existentes}")
+                logger.info(f"É importação completa? {is_importacao_completa}")
+            except Exception as e:
+                # Se der erro ao contar (tabela não existe), considera como importação completa
+                is_importacao_completa = True
+                logger.info(f"Erro ao verificar registros existentes: {str(e)}. Considerando como importação completa.")
             
             # Cria uma tabela temporária para os novos dados
             temp_table_id = f"temp_{table_id}_{int(time.time())}"
@@ -357,6 +380,27 @@ class ProcessamentoThread(threading.Thread):
                 job.result()  # Aguarda a conclusão do job
                 logger.info("Dados carregados com sucesso na tabela temporária")
                 
+                # Verifica se a tabela principal existe, se não, cria ela
+                try:
+                    client.get_table(f"{dataset_id}.{table_id}")
+                    logger.info(f"Tabela {table_id} já existe")
+                except Exception as e:
+                    logger.info(f"Criando tabela {table_id} com o schema definido")
+                    table_ref = client.dataset(dataset_id).table(table_id)
+                    table = bigquery.Table(table_ref, schema=schema)
+                    client.create_table(table)
+                    logger.info(f"Tabela {table_id} criada com sucesso")
+                
+                # Se for importação completa, deleta os registros existentes da versão
+                if is_importacao_completa:
+                    delete_query = f"""
+                    DELETE FROM `{dataset_id}.{table_id}`
+                    WHERE VERSAO = '{versao_importacao}'
+                    """
+                    logger.info(f"Executando DELETE para importação completa da versão {versao_importacao}")
+                    delete_job = client.query(delete_query)
+                    delete_job.result()
+                
                 # Cria uma query para atualizar apenas os registros que existem na tabela temporária
                 merge_query = f"""
                 MERGE `{dataset_id}.{table_id}` T
@@ -369,17 +413,17 @@ class ProcessamentoThread(threading.Thread):
                     UPDATE SET
                         T.DESCRICAO = S.DESCRICAO,
                         T.VALOR = S.VALOR,
+                        T.OPERACAO = S.OPERACAO,
                         T.DATA_ATUALIZACAO = CURRENT_TIMESTAMP()
                 WHEN NOT MATCHED THEN
-                    INSERT (N_CONTA, N_CENTRO_CUSTO, DESCRICAO, VALOR, DATA, VERSAO, DATA_ATUALIZACAO)
-                    VALUES (S.N_CONTA, S.N_CENTRO_CUSTO, S.DESCRICAO, S.VALOR, S.DATA, S.VERSAO, CURRENT_TIMESTAMP())
+                    INSERT (N_CONTA, N_CENTRO_CUSTO, DESCRICAO, VALOR, DATA, VERSAO, OPERACAO, DATA_ATUALIZACAO)
+                    VALUES (S.N_CONTA, S.N_CENTRO_CUSTO, S.DESCRICAO, S.VALOR, S.DATA, S.VERSAO, S.OPERACAO, CURRENT_TIMESTAMP())
                 """
                 
-                logger.info(f"Executando MERGE para atualizar registros específicos")
+                logger.info(f"Executando MERGE para {'importação completa' if is_importacao_completa else 'atualização parcial'}")
                 logger.info(f"Query MERGE: {merge_query}")
                 merge_job = client.query(merge_query)
                 merge_job.result()
-                logger.info("MERGE executado com sucesso")
                 
                 # Registra nos metadados
                 metadata = {
@@ -387,10 +431,10 @@ class ProcessamentoThread(threading.Thread):
                     "USUARIO": str(getpass.getuser()),
                     "SISTEMA_OPERACIONAL": str(platform.system()),
                     "VERSAO_SISTEMA": str(platform.version()),
-                    "ARQUIVO_ORIGEM": f"ATUALIZACAO_PARCIAL: {os.path.basename(self.arquivo_path)}",
+                    "ARQUIVO_ORIGEM": f"{'IMPORTACAO_COMPLETA' if is_importacao_completa else 'ATUALIZACAO_PARCIAL'}: {os.path.basename(self.arquivo_path)}",
                     "TOTAL_REGISTROS": int(len(df_bigquery)),
-                    "STATUS": "ATUALIZACAO_PARCIAL",
-                    "DETALHES": f"Atualização parcial de {len(df_bigquery)} registros da versão {versao_importacao}"
+                    "STATUS": "IMPORTACAO_COMPLETA" if is_importacao_completa else "ATUALIZACAO_PARCIAL",
+                    "DETALHES": f"{'Importação completa' if is_importacao_completa else 'Atualização parcial'} de {len(df_bigquery)} registros da versão {versao_importacao}"
                 }
                 
                 logger.info(f"Registrando metadados: {metadata}")
@@ -684,7 +728,7 @@ def download_modelo():
 
 @app.route('/registros')
 def listar_registros():
-    """Lista os registros da tabela ORCADO no BigQuery com filtros."""
+    """Lista os registros da tabela ORCADO com filtros opcionais."""
     try:
         # Obtém os parâmetros de filtro
         n_conta = request.args.get('n_conta', '')
@@ -692,6 +736,7 @@ def listar_registros():
         data_inicio = request.args.get('data_inicio', '')
         data_fim = request.args.get('data_fim', '')
         versao = request.args.get('versao', '')
+        operacao = request.args.get('operacao', '')
         
         # Verifica se o arquivo de credenciais existe
         if not BIGQUERY_CREDENTIALS_PATH.exists():
@@ -714,16 +759,20 @@ def listar_registros():
         dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
         table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
         
-        # Primeiro, vamos verificar todas as versões disponíveis
-        versoes_query = f"""
-        SELECT DISTINCT VERSAO
-        FROM `{dataset_id}.{table_id}`
-        ORDER BY VERSAO DESC
-        """
-        logger.info(f"Executando query para buscar versões: {versoes_query}")
-        versoes_job = client.query(versoes_query)
-        versoes = [row.VERSAO for row in versoes_job.result()]
-        logger.info(f"Versões encontradas: {versoes}")
+        # Busca as versões disponíveis
+        try:
+            versoes_query = f"""
+            SELECT DISTINCT VERSAO
+            FROM `{dataset_id}.{table_id}`
+            ORDER BY VERSAO DESC
+            """
+            versoes_job = client.query(versoes_query)
+            versoes_result = versoes_job.result()
+            versoes = [row.VERSAO for row in versoes_result]
+            logger.info(f"Versões encontradas: {versoes}")
+        except Exception as e:
+            logger.error(f"Erro ao buscar versões: {str(e)}")
+            versoes = []
         
         # Constrói a query com os filtros
         query = f"""
@@ -734,6 +783,7 @@ def listar_registros():
             VALOR,
             DATA,
             VERSAO,
+            OPERACAO,
             DATA_ATUALIZACAO
         FROM `{dataset_id}.{table_id}`
         WHERE 1=1
@@ -749,10 +799,10 @@ def listar_registros():
             query += f" AND DATA <= DATE('{data_fim}')"
         if versao:
             query += f" AND VERSAO = '{versao}'"
+        if operacao:
+            query += f" AND OPERACAO LIKE '%{operacao}%'"
             
-        query += " ORDER BY VERSAO DESC, DATA DESC, N_CONTA, N_CENTRO_CUSTO LIMIT 1000"
-        
-        logger.info(f"Executando query principal: {query}")
+        query += " ORDER BY DATA DESC, N_CONTA, N_CENTRO_CUSTO LIMIT 1000"
         
         # Executa a query
         query_job = client.query(query)
@@ -768,6 +818,7 @@ def listar_registros():
                 'VALOR': float(row.VALOR),
                 'DATA': row.DATA.strftime('%d/%m/%Y'),
                 'VERSAO': row.VERSAO,
+                'OPERACAO': row.OPERACAO,
                 'DATA_ATUALIZACAO': row.DATA_ATUALIZACAO.strftime('%d/%m/%Y %H:%M:%S')
             }
             registros.append(registro)
@@ -785,7 +836,8 @@ def listar_registros():
                                  'n_centro_custo': n_centro_custo,
                                  'data_inicio': data_inicio,
                                  'data_fim': data_fim,
-                                 'versao': versao
+                                 'versao': versao,
+                                 'operacao': operacao
                              },
                              now=datetime.now())
         
@@ -1230,6 +1282,7 @@ def exportar_excel():
             VALOR,
             DATA,
             VERSAO,
+            OPERACAO,
             DATA_ATUALIZACAO
         FROM `{dataset_id}.{table_id}`
         WHERE 1=1
@@ -1246,7 +1299,7 @@ def exportar_excel():
         if versao:
             query += f" AND VERSAO = '{versao}'"
             
-        query += " ORDER BY VERSAO DESC, DATA DESC, N_CONTA, N_CENTRO_CUSTO"
+        query += " ORDER BY DATA DESC, N_CONTA, N_CENTRO_CUSTO"
         
         # Executa a query
         query_job = client.query(query)
@@ -1262,6 +1315,7 @@ def exportar_excel():
                 'VALOR': float(row.VALOR),
                 'DATA': row.DATA.strftime('%d/%m/%Y'),
                 'VERSAO': row.VERSAO,
+                'OPERACAO': row.OPERACAO,
                 'DATA_ATUALIZACAO': row.DATA_ATUALIZACAO.strftime('%d/%m/%Y %H:%M:%S')
             }
             registros.append(registro)
@@ -1302,6 +1356,149 @@ def exportar_excel():
         logger.error(f"Erro ao exportar registros para Excel: {str(e)}")
         flash(f"Erro ao exportar registros: {str(e)}", "error")
         return redirect(url_for('listar_registros'))
+
+@app.route('/registros/deletar_filtros', methods=['POST'])
+def deletar_por_filtros():
+    """Deleta registros baseado nos filtros aplicados."""
+    try:
+        # Obtém os parâmetros de filtro
+        n_conta = request.form.get('n_conta', '')
+        n_centro_custo = request.form.get('n_centro_custo', '')
+        data_inicio = request.form.get('data_inicio', '')
+        data_fim = request.form.get('data_fim', '')
+        versao = request.form.get('versao', '')
+        
+        # Verifica se pelo menos um filtro foi aplicado
+        if not any([n_conta, n_centro_custo, data_inicio, data_fim, versao]):
+            flash("É necessário aplicar pelo menos um filtro para deletar registros", "error")
+            return redirect(url_for('listar_registros'))
+        
+        # Verifica se o arquivo de credenciais existe
+        if not BIGQUERY_CREDENTIALS_PATH.exists():
+            flash("Credenciais do BigQuery não encontradas", "error")
+            return redirect(url_for('listar_registros'))
+            
+        # Cria as credenciais a partir do arquivo JSON
+        credentials = service_account.Credentials.from_service_account_file(
+            BIGQUERY_CREDENTIALS_PATH,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        
+        # Inicializa o cliente do BigQuery
+        client = bigquery.Client(
+            project=BIGQUERY_CONFIG.get("project_id", "projeto-teste"),
+            credentials=credentials
+        )
+        
+        # Define o ID do dataset e tabela
+        dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
+        table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
+        metadata_table_id = BIGQUERY_CONFIG.get("metadata_table_id", "ORCADO_METADATA")
+        
+        # Primeiro, verifica quantos registros serão afetados
+        count_query = f"""
+        SELECT COUNT(*) as total
+        FROM `{dataset_id}.{table_id}`
+        WHERE 1=1
+        """
+        
+        if n_conta:
+            count_query += f" AND N_CONTA LIKE '%{n_conta}%'"
+        if n_centro_custo:
+            count_query += f" AND N_CENTRO_CUSTO LIKE '%{n_centro_custo}%'"
+        if data_inicio:
+            count_query += f" AND DATA >= DATE('{data_inicio}')"
+        if data_fim:
+            count_query += f" AND DATA <= DATE('{data_fim}')"
+        if versao:
+            count_query += f" AND VERSAO = '{versao}'"
+        
+        # Executa a query de contagem
+        count_job = client.query(count_query)
+        count_result = count_job.result()
+        total_registros = next(count_result).total
+        
+        if total_registros == 0:
+            flash("Nenhum registro encontrado com os filtros aplicados", "warning")
+            return redirect(url_for('listar_registros'))
+        
+        # Constrói a query de deleção com os filtros
+        delete_query = f"""
+        DELETE FROM `{dataset_id}.{table_id}`
+        WHERE 1=1
+        """
+        
+        if n_conta:
+            delete_query += f" AND N_CONTA LIKE '%{n_conta}%'"
+        if n_centro_custo:
+            delete_query += f" AND N_CENTRO_CUSTO LIKE '%{n_centro_custo}%'"
+        if data_inicio:
+            delete_query += f" AND DATA >= DATE('{data_inicio}')"
+        if data_fim:
+            delete_query += f" AND DATA <= DATE('{data_fim}')"
+        if versao:
+            delete_query += f" AND VERSAO = '{versao}'"
+        
+        # Executa a query de deleção
+        delete_job = client.query(delete_query)
+        delete_job.result()
+        
+        # Registra a deleção nos metadados
+        metadata = {
+            "DATA_IMPORTACAO": pd.Timestamp.now(),
+            "USUARIO": str(getpass.getuser()),
+            "SISTEMA_OPERACIONAL": str(platform.system()),
+            "VERSAO_SISTEMA": str(platform.version()),
+            "ARQUIVO_ORIGEM": f"DELETADO: Filtros aplicados",
+            "TOTAL_REGISTROS": total_registros,
+            "STATUS": "DELETADO",
+            "DETALHES": f"Registros deletados com filtros: Conta={n_conta}, Centro Custo={n_centro_custo}, Data Início={data_inicio}, Data Fim={data_fim}, Versão={versao}"
+        }
+        
+        # Cria o DataFrame com tipos explícitos
+        df_metadata = pd.DataFrame({
+            "DATA_IMPORTACAO": [metadata["DATA_IMPORTACAO"]],
+            "USUARIO": [metadata["USUARIO"]],
+            "SISTEMA_OPERACIONAL": [metadata["SISTEMA_OPERACIONAL"]],
+            "VERSAO_SISTEMA": [metadata["VERSAO_SISTEMA"]],
+            "ARQUIVO_ORIGEM": [metadata["ARQUIVO_ORIGEM"]],
+            "TOTAL_REGISTROS": [metadata["TOTAL_REGISTROS"]],
+            "STATUS": [metadata["STATUS"]],
+            "DETALHES": [metadata["DETALHES"]]
+        })
+        
+        # Define o schema da tabela de metadados
+        metadata_schema = [
+            bigquery.SchemaField("DATA_IMPORTACAO", "TIMESTAMP", mode="REQUIRED"),
+            bigquery.SchemaField("USUARIO", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("SISTEMA_OPERACIONAL", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("VERSAO_SISTEMA", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("ARQUIVO_ORIGEM", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("TOTAL_REGISTROS", "INTEGER", mode="REQUIRED"),
+            bigquery.SchemaField("STATUS", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("DETALHES", "STRING", mode="REQUIRED")
+        ]
+        
+        # Configura o job para os metadados
+        metadata_job_config = bigquery.LoadJobConfig(
+            write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+            schema=metadata_schema
+        )
+        
+        # Carrega os metadados
+        metadata_table_ref = client.dataset(dataset_id).table(metadata_table_id)
+        metadata_job = client.load_table_from_dataframe(
+            df_metadata, metadata_table_ref, job_config=metadata_job_config
+        )
+        metadata_job.result()
+        
+        flash(f"{total_registros} registros foram deletados com sucesso", "success")
+        
+    except Exception as e:
+        logger.error(f"Erro ao deletar registros por filtros: {str(e)}")
+        flash(f"Erro ao deletar registros: {str(e)}", "error")
+        
+    return redirect(url_for('listar_registros'))
 
 if __name__ == "__main__":
     main() 

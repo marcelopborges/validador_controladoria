@@ -156,7 +156,7 @@
                     {% endwith %}
                     
                     <div class="upload-section">
-                        <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+                        <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" id="uploadForm">
                             <div class="file-upload">
                                 <div class="text-center">
                                     <i class="fas fa-file-excel upload-icon"></i>
@@ -167,7 +167,7 @@
                                 <input type="file" name="arquivo" id="arquivo" accept=".xlsx,.xls,.csv" onchange="updateFileName()">
                             </div>
                             <div id="file-name-display" class="file-name text-center"></div>
-                            <button type="submit" class="btn btn-primary upload-btn">
+                            <button type="button" class="btn btn-primary upload-btn" onclick="validarArquivo()">
                                 <i class="fas fa-upload"></i> Enviar e Processar
                             </button>
                         </form>
@@ -213,6 +213,50 @@
         </div>
     </div>
     
+    <!-- Modal de Confirmação de Upload -->
+    <div class="modal fade" id="confirmarUploadModal" tabindex="-1" aria-labelledby="confirmarUploadModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmarUploadModalLabel">Confirmar Upload</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Tem certeza que deseja enviar o arquivo <strong id="nomeArquivoModal"></strong> para processamento?</p>
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>Atenção:</strong> Esta ação irá processar e validar os dados do arquivo.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" onclick="enviarArquivo()">Confirmar Upload</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Erro -->
+    <div class="modal fade" id="erroModal" tabindex="-1" aria-labelledby="erroModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="erroModalLabel">Erro</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <span id="mensagemErro">Por favor, selecione um arquivo antes de continuar.</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Bootstrap Bundle with Popper -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     
@@ -226,6 +270,34 @@
             } else {
                 display.textContent = '';
             }
+        }
+        
+        function validarArquivo() {
+            const input = document.getElementById('arquivo');
+            const nomeArquivoModal = document.getElementById('nomeArquivoModal');
+            const mensagemErro = document.getElementById('mensagemErro');
+            
+            if (input.files.length === 0) {
+                mensagemErro.textContent = 'Por favor, selecione um arquivo antes de continuar.';
+                new bootstrap.Modal(document.getElementById('erroModal')).show();
+                return;
+            }
+            
+            const file = input.files[0];
+            const extensao = file.name.split('.').pop().toLowerCase();
+            
+            if (!['xlsx', 'xls', 'csv'].includes(extensao)) {
+                mensagemErro.textContent = 'Formato de arquivo não suportado. Por favor, selecione um arquivo .xlsx, .xls ou .csv.';
+                new bootstrap.Modal(document.getElementById('erroModal')).show();
+                return;
+            }
+            
+            nomeArquivoModal.textContent = file.name;
+            new bootstrap.Modal(document.getElementById('confirmarUploadModal')).show();
+        }
+        
+        function enviarArquivo() {
+            document.getElementById('uploadForm').submit();
         }
         
         // Implementar área de arrastar e soltar
