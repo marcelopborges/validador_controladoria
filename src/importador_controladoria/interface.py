@@ -334,36 +334,9 @@ class ProcessamentoThread(threading.Thread):
                 bigquery.SchemaField("DATA_ATUALIZACAO", "TIMESTAMP", mode="REQUIRED")
             ]
             
-            # Verifica se o dataset existe
-            try:
-                client.get_dataset(dataset_id)
-                logger.info(f"Dataset {dataset_id} encontrado")
-            except Exception as e:
-                logger.error(f"Dataset {dataset_id} não encontrado: {str(e)}")
-                self.atualizar_etapa("upload", error=True, message=f"Dataset {dataset_id} não encontrado. Verifique as configurações.")
-                return False
-            
-            # Verifica se a tabela existe
-            table_ref = client.dataset(dataset_id).table(table_id)
-            try:
-                table = client.get_table(table_ref)
-                logger.info(f"Tabela {table_id} encontrada")
-                
-                # Verifica se o schema está correto
-                schema_atual = [field.name for field in table.schema]
-                schema_esperado = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'VERSAO', 'DATA_ATUALIZACAO']
-                
-                if set(schema_atual) != set(schema_esperado):
-                    logger.warning(f"Schema da tabela {table_id} não está correto. Recriando tabela...")
-                    client.delete_table(table_ref)
-                    raise Exception("Schema incorreto")
-                    
-            except Exception as e:
-                logger.info(f"Criando tabela {table_id} com schema correto...")
-                # Cria a tabela com o schema correto
-                table = bigquery.Table(table_ref, schema=schema)
-                table = client.create_table(table)
-                logger.info(f"Tabela {table_id} criada com sucesso")
+            # Obtém a versão dos dados que estão sendo importados
+            versao_importacao = df_bigquery['VERSAO'].iloc[0]
+            logger.info(f"Importando dados da versão: {versao_importacao}")
             
             # Cria uma tabela temporária para os novos dados
             temp_table_id = f"temp_{table_id}_{int(time.time())}"
@@ -376,21 +349,98 @@ class ProcessamentoThread(threading.Thread):
                     schema=schema
                 )
                 
+                logger.info(f"Iniciando carregamento dos dados na tabela temporária {temp_table_id}")
                 # Carrega os dados na tabela temporária
                 job = client.load_table_from_dataframe(
                     df_bigquery, temp_table_ref, job_config=job_config
                 )
                 job.result()  # Aguarda a conclusão do job
+                logger.info("Dados carregados com sucesso na tabela temporária")
                 
-                # Copia os dados da tabela temporária para a tabela final
-                copy_job = client.copy_table(
-                    temp_table_ref,
-                    table_ref,
-                    job_config=bigquery.CopyJobConfig(
-                        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE
-                    )
+                # Cria uma query para atualizar apenas os registros que existem na tabela temporária
+                merge_query = f"""
+                MERGE `{dataset_id}.{table_id}` T
+                USING `{dataset_id}.{temp_table_id}` S
+                ON T.N_CONTA = S.N_CONTA 
+                   AND T.N_CENTRO_CUSTO = S.N_CENTRO_CUSTO 
+                   AND T.DATA = S.DATA 
+                   AND T.VERSAO = S.VERSAO
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        T.DESCRICAO = S.DESCRICAO,
+                        T.VALOR = S.VALOR,
+                        T.DATA_ATUALIZACAO = CURRENT_TIMESTAMP()
+                WHEN NOT MATCHED THEN
+                    INSERT (N_CONTA, N_CENTRO_CUSTO, DESCRICAO, VALOR, DATA, VERSAO, DATA_ATUALIZACAO)
+                    VALUES (S.N_CONTA, S.N_CENTRO_CUSTO, S.DESCRICAO, S.VALOR, S.DATA, S.VERSAO, CURRENT_TIMESTAMP())
+                """
+                
+                logger.info(f"Executando MERGE para atualizar registros específicos")
+                logger.info(f"Query MERGE: {merge_query}")
+                merge_job = client.query(merge_query)
+                merge_job.result()
+                logger.info("MERGE executado com sucesso")
+                
+                # Registra nos metadados
+                metadata = {
+                    "DATA_IMPORTACAO": pd.Timestamp.now(),
+                    "USUARIO": str(getpass.getuser()),
+                    "SISTEMA_OPERACIONAL": str(platform.system()),
+                    "VERSAO_SISTEMA": str(platform.version()),
+                    "ARQUIVO_ORIGEM": f"ATUALIZACAO_PARCIAL: {os.path.basename(self.arquivo_path)}",
+                    "TOTAL_REGISTROS": int(len(df_bigquery)),
+                    "STATUS": "ATUALIZACAO_PARCIAL",
+                    "DETALHES": f"Atualização parcial de {len(df_bigquery)} registros da versão {versao_importacao}"
+                }
+                
+                logger.info(f"Registrando metadados: {metadata}")
+                
+                # Cria o DataFrame com tipos explícitos
+                df_metadata = pd.DataFrame({
+                    "DATA_IMPORTACAO": [metadata["DATA_IMPORTACAO"]],
+                    "USUARIO": [metadata["USUARIO"]],
+                    "SISTEMA_OPERACIONAL": [metadata["SISTEMA_OPERACIONAL"]],
+                    "VERSAO_SISTEMA": [metadata["VERSAO_SISTEMA"]],
+                    "ARQUIVO_ORIGEM": [metadata["ARQUIVO_ORIGEM"]],
+                    "TOTAL_REGISTROS": [metadata["TOTAL_REGISTROS"]],
+                    "STATUS": [metadata["STATUS"]],
+                    "DETALHES": [metadata["DETALHES"]]
+                })
+                
+                # Define o schema da tabela de metadados
+                metadata_schema = [
+                    bigquery.SchemaField("DATA_IMPORTACAO", "TIMESTAMP", mode="REQUIRED"),
+                    bigquery.SchemaField("USUARIO", "STRING", mode="REQUIRED"),
+                    bigquery.SchemaField("SISTEMA_OPERACIONAL", "STRING", mode="REQUIRED"),
+                    bigquery.SchemaField("VERSAO_SISTEMA", "STRING", mode="REQUIRED"),
+                    bigquery.SchemaField("ARQUIVO_ORIGEM", "STRING", mode="REQUIRED"),
+                    bigquery.SchemaField("TOTAL_REGISTROS", "INTEGER", mode="REQUIRED"),
+                    bigquery.SchemaField("STATUS", "STRING", mode="REQUIRED"),
+                    bigquery.SchemaField("DETALHES", "STRING", mode="REQUIRED")
+                ]
+                
+                # Configura o job para os metadados
+                metadata_job_config = bigquery.LoadJobConfig(
+                    write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+                    schema=metadata_schema
                 )
-                copy_job.result()  # Aguarda a conclusão da cópia
+                
+                # Carrega os metadados
+                metadata_table_ref = client.dataset(dataset_id).table(metadata_table_id)
+                logger.info(f"Iniciando inserção dos metadados na tabela {metadata_table_id}")
+                metadata_job = client.load_table_from_dataframe(
+                    df_metadata, metadata_table_ref, job_config=metadata_job_config
+                )
+                metadata_job.result()
+                logger.info("Metadados inseridos com sucesso")
+                
+            except Exception as e:
+                logger.error(f"Erro detalhado durante a exportação para BigQuery: {str(e)}")
+                logger.error(f"Tipo do erro: {type(e).__name__}")
+                import traceback
+                logger.error(f"Stack trace: {traceback.format_exc()}")
+                self.atualizar_etapa("upload", error=True, message=f"Erro ao exportar para BigQuery: {str(e)}")
+                return False
                 
             finally:
                 # Garante que a tabela temporária seja removida mesmo em caso de erro
@@ -400,84 +450,8 @@ class ProcessamentoThread(threading.Thread):
                 except Exception as e:
                     logger.error(f"Erro ao remover tabela temporária {temp_table_id}: {str(e)}")
             
-            # Limpa tabelas temporárias antigas (mais de 1 hora)
-            try:
-                cleanup_query = f"""
-                DELETE FROM `{dataset_id}.__TABLES__`
-                WHERE table_id LIKE 'temp_{table_id}_%'
-                AND creation_time < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)
-                """
-                client.query(cleanup_query).result()
-                logger.info("Limpeza de tabelas temporárias antigas concluída")
-            except Exception as e:
-                logger.error(f"Erro ao limpar tabelas temporárias antigas: {str(e)}")
-            
-            # Cria e carrega os metadados
-            metadata = {
-                "DATA_IMPORTACAO": pd.Timestamp.now(),
-                "USUARIO": str(getpass.getuser()),
-                "SISTEMA_OPERACIONAL": str(platform.system()),
-                "VERSAO_SISTEMA": str(platform.version()),
-                "ARQUIVO_ORIGEM": str(os.path.basename(self.arquivo_path)),
-                "TOTAL_REGISTROS": int(len(df)),
-                "STATUS": "SUCESSO",
-                "DETALHES": f"Importação de {len(df)} registros do arquivo {os.path.basename(self.arquivo_path)}"
-            }
-            
-            # Cria o DataFrame com tipos explícitos
-            df_metadata = pd.DataFrame({
-                "DATA_IMPORTACAO": [metadata["DATA_IMPORTACAO"]],
-                "USUARIO": [metadata["USUARIO"]],
-                "SISTEMA_OPERACIONAL": [metadata["SISTEMA_OPERACIONAL"]],
-                "VERSAO_SISTEMA": [metadata["VERSAO_SISTEMA"]],
-                "ARQUIVO_ORIGEM": [metadata["ARQUIVO_ORIGEM"]],
-                "TOTAL_REGISTROS": [metadata["TOTAL_REGISTROS"]],
-                "STATUS": [metadata["STATUS"]],
-                "DETALHES": [metadata["DETALHES"]]
-            })
-            
-            # Define o schema da tabela de metadados
-            metadata_schema = [
-                bigquery.SchemaField("DATA_IMPORTACAO", "TIMESTAMP", mode="REQUIRED"),
-                bigquery.SchemaField("USUARIO", "STRING", mode="REQUIRED"),
-                bigquery.SchemaField("SISTEMA_OPERACIONAL", "STRING", mode="REQUIRED"),
-                bigquery.SchemaField("VERSAO_SISTEMA", "STRING", mode="REQUIRED"),
-                bigquery.SchemaField("ARQUIVO_ORIGEM", "STRING", mode="REQUIRED"),
-                bigquery.SchemaField("TOTAL_REGISTROS", "INTEGER", mode="REQUIRED"),
-                bigquery.SchemaField("STATUS", "STRING", mode="REQUIRED"),
-                bigquery.SchemaField("DETALHES", "STRING", mode="REQUIRED")
-            ]
-            
-            # Carrega os metadados
-            metadata_table_ref = client.dataset(dataset_id).table(metadata_table_id)
-            logger.info(f"Tentando inserir metadados na tabela: {dataset_id}.{metadata_table_id}")
-
-            try:
-                # Verifica se a tabela de metadados existe
-                metadata_table = client.get_table(metadata_table_ref)
-                logger.info(f"Tabela de metadados {metadata_table_id} encontrada")
-            except Exception as e:
-                logger.info(f"Criando tabela de metadados {metadata_table_id}...")
-                metadata_table = bigquery.Table(metadata_table_ref, schema=metadata_schema)
-                metadata_table = client.create_table(metadata_table)
-                logger.info(f"Tabela de metadados {metadata_table_id} criada com sucesso")
-
-            # Configura o job para os metadados
-            metadata_job_config = bigquery.LoadJobConfig(
-                write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
-                schema=metadata_schema
-            )
-
-            # Carrega os metadados
-            logger.info("Iniciando inserção dos metadados...")
-            metadata_job = client.load_table_from_dataframe(
-                df_metadata, metadata_table_ref, job_config=metadata_job_config
-            )
-            metadata_job.result()
-            logger.info("Metadados inseridos com sucesso na tabela ORCADO_METADATA")
-            
             self.atualizar_etapa("upload", completed=True, message="Dados exportados com sucesso para o BigQuery")
-            logger.info("Dados exportados com sucesso para o BigQuery")
+            logger.info("Processo de exportação concluído com sucesso")
             return True
             
         except Exception as e:
@@ -740,6 +714,17 @@ def listar_registros():
         dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
         table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
         
+        # Primeiro, vamos verificar todas as versões disponíveis
+        versoes_query = f"""
+        SELECT DISTINCT VERSAO
+        FROM `{dataset_id}.{table_id}`
+        ORDER BY VERSAO DESC
+        """
+        logger.info(f"Executando query para buscar versões: {versoes_query}")
+        versoes_job = client.query(versoes_query)
+        versoes = [row.VERSAO for row in versoes_job.result()]
+        logger.info(f"Versões encontradas: {versoes}")
+        
         # Constrói a query com os filtros
         query = f"""
         SELECT 
@@ -765,7 +750,9 @@ def listar_registros():
         if versao:
             query += f" AND VERSAO = '{versao}'"
             
-        query += " ORDER BY DATA DESC, N_CONTA, N_CENTRO_CUSTO LIMIT 1000"
+        query += " ORDER BY VERSAO DESC, DATA DESC, N_CONTA, N_CENTRO_CUSTO LIMIT 1000"
+        
+        logger.info(f"Executando query principal: {query}")
         
         # Executa a query
         query_job = client.query(query)
@@ -785,14 +772,10 @@ def listar_registros():
             }
             registros.append(registro)
         
-        # Busca as versões disponíveis para o filtro
-        versoes_query = f"""
-        SELECT DISTINCT VERSAO
-        FROM `{dataset_id}.{table_id}`
-        ORDER BY VERSAO DESC
-        """
-        versoes_job = client.query(versoes_query)
-        versoes = [row.VERSAO for row in versoes_job.result()]
+        logger.info(f"Total de registros encontrados: {len(registros)}")
+        if registros:
+            logger.info(f"Primeiro registro: {registros[0]}")
+            logger.info(f"Último registro: {registros[-1]}")
         
         return render_template('registros.html', 
                              registros=registros, 
@@ -1045,31 +1028,10 @@ def deletar_registro():
         
         # Carrega os metadados
         metadata_table_ref = client.dataset(dataset_id).table(metadata_table_id)
-        logger.info(f"Tentando inserir metadados na tabela: {dataset_id}.{metadata_table_id}")
-
-        try:
-            # Verifica se a tabela de metadados existe
-            metadata_table = client.get_table(metadata_table_ref)
-            logger.info(f"Tabela de metadados {metadata_table_id} encontrada")
-        except Exception as e:
-            logger.info(f"Criando tabela de metadados {metadata_table_id}...")
-            metadata_table = bigquery.Table(metadata_table_ref, schema=metadata_schema)
-            metadata_table = client.create_table(metadata_table)
-            logger.info(f"Tabela de metadados {metadata_table_id} criada com sucesso")
-
-        # Configura o job para os metadados
-        metadata_job_config = bigquery.LoadJobConfig(
-            write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
-            schema=metadata_schema
-        )
-
-        # Carrega os metadados
-        logger.info("Iniciando inserção dos metadados...")
         metadata_job = client.load_table_from_dataframe(
             df_metadata, metadata_table_ref, job_config=metadata_job_config
         )
         metadata_job.result()
-        logger.info("Metadados inseridos com sucesso na tabela ORCADO_METADATA")
         
         flash("Registro deletado com sucesso", "success")
         
@@ -1226,6 +1188,120 @@ def deletar_por_centro_custo():
         flash(f"Erro ao deletar registros: {str(e)}", "error")
         
     return redirect(url_for('listar_registros'))
+
+@app.route('/registros/exportar_excel')
+def exportar_excel():
+    """Exporta os registros do BigQuery para um arquivo Excel."""
+    try:
+        # Obtém os parâmetros de filtro
+        n_conta = request.args.get('n_conta', '')
+        n_centro_custo = request.args.get('n_centro_custo', '')
+        data_inicio = request.args.get('data_inicio', '')
+        data_fim = request.args.get('data_fim', '')
+        versao = request.args.get('versao', '')
+        
+        # Verifica se o arquivo de credenciais existe
+        if not BIGQUERY_CREDENTIALS_PATH.exists():
+            flash("Credenciais do BigQuery não encontradas", "error")
+            return redirect(url_for('listar_registros'))
+            
+        # Cria as credenciais a partir do arquivo JSON
+        credentials = service_account.Credentials.from_service_account_file(
+            BIGQUERY_CREDENTIALS_PATH,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        
+        # Inicializa o cliente do BigQuery
+        client = bigquery.Client(
+            project=BIGQUERY_CONFIG.get("project_id", "projeto-teste"),
+            credentials=credentials
+        )
+        
+        # Define o ID do dataset e tabela
+        dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
+        table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
+        
+        # Constrói a query com os filtros
+        query = f"""
+        SELECT 
+            N_CONTA,
+            N_CENTRO_CUSTO,
+            DESCRICAO,
+            VALOR,
+            DATA,
+            VERSAO,
+            DATA_ATUALIZACAO
+        FROM `{dataset_id}.{table_id}`
+        WHERE 1=1
+        """
+        
+        if n_conta:
+            query += f" AND N_CONTA LIKE '%{n_conta}%'"
+        if n_centro_custo:
+            query += f" AND N_CENTRO_CUSTO LIKE '%{n_centro_custo}%'"
+        if data_inicio:
+            query += f" AND DATA >= DATE('{data_inicio}')"
+        if data_fim:
+            query += f" AND DATA <= DATE('{data_fim}')"
+        if versao:
+            query += f" AND VERSAO = '{versao}'"
+            
+        query += " ORDER BY VERSAO DESC, DATA DESC, N_CONTA, N_CENTRO_CUSTO"
+        
+        # Executa a query
+        query_job = client.query(query)
+        resultados = query_job.result()
+        
+        # Converte os resultados para um DataFrame
+        registros = []
+        for row in resultados:
+            registro = {
+                'N_CONTA': row.N_CONTA,
+                'N_CENTRO_CUSTO': row.N_CENTRO_CUSTO,
+                'DESCRICAO': row.DESCRICAO,
+                'VALOR': float(row.VALOR),
+                'DATA': row.DATA.strftime('%d/%m/%Y'),
+                'VERSAO': row.VERSAO,
+                'DATA_ATUALIZACAO': row.DATA_ATUALIZACAO.strftime('%d/%m/%Y %H:%M:%S')
+            }
+            registros.append(registro)
+        
+        df = pd.DataFrame(registros)
+        
+        # Cria um arquivo Excel temporário
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+        excel_path = temp_file.name
+        temp_file.close()
+        
+        # Salva o DataFrame no arquivo Excel
+        with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Registros')
+            
+            # Ajusta a largura das colunas
+            worksheet = writer.sheets['Registros']
+            for idx, col in enumerate(df.columns):
+                max_length = max(
+                    df[col].astype(str).apply(len).max(),
+                    len(col)
+                )
+                worksheet.column_dimensions[chr(65 + idx)].width = max_length + 2
+        
+        # Gera o nome do arquivo
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"registros_exportados_{timestamp}.xlsx"
+        
+        # Envia o arquivo
+        return send_file(
+            excel_path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        logger.error(f"Erro ao exportar registros para Excel: {str(e)}")
+        flash(f"Erro ao exportar registros: {str(e)}", "error")
+        return redirect(url_for('listar_registros'))
 
 if __name__ == "__main__":
     main() 

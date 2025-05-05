@@ -49,8 +49,11 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-2 d-flex align-items-end">
-                    <button type="submit" class="btn btn-primary w-100">Filtrar</button>
+                <div class="col-md-2 d-flex align-items-end gap-2">
+                    <button type="submit" class="btn btn-primary flex-grow-1">Filtrar</button>
+                    <a href="{{ url_for('exportar_excel', n_conta=filtros.n_conta, n_centro_custo=filtros.n_centro_custo, data_inicio=filtros.data_inicio, data_fim=filtros.data_fim, versao=filtros.versao) }}" class="btn btn-success">
+                        <i class="fas fa-file-excel"></i>
+                    </a>
                 </div>
             </form>
         </div>
