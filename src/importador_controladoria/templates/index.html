@@ -197,7 +197,7 @@
                         <a href="{{ url_for('regras') }}" class="btn btn-outline-primary" target="_blank">
                             <i class="fas fa-book"></i> Ver Regras de Validação
                         </a>
-                        <a href="{{ url_for('download_modelo') }}" class="btn btn-outline-success ms-2">
+                        <a href="#" onclick="return mostrarErroModelo()" class="btn btn-outline-success ms-2">
                             <i class="fas fa-download"></i> Baixar Modelo de Importação
                         </a>
                         <a href="{{ url_for('listar_registros') }}" class="btn btn-outline-info ms-2">
@@ -248,6 +248,33 @@
                     <div class="alert alert-danger">
                         <i class="fas fa-exclamation-circle"></i>
                         <span id="mensagemErro">Por favor, selecione um arquivo antes de continuar.</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Erro do Modelo -->
+    <div class="modal fade" id="erroModeloModal" tabindex="-1" aria-labelledby="erroModeloModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="erroModeloModalLabel">Arquivo de Exemplo Não Encontrado</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <p>O arquivo de exemplo não está disponível no momento.</p>
+                        <p>Por favor, entre em contato com o suporte:</p>
+                        <p class="text-center mt-3">
+                            <a href="mailto:marcelo.borges@gestaosian.com.br" class="btn btn-primary">
+                                <i class="fas fa-envelope"></i> marcelo.borges@gestaosian.com.br
+                            </a>
+                        </p>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -335,6 +362,12 @@
             const files = dt.files;
             document.getElementById('arquivo').files = files;
             updateFileName();
+        }
+
+        // Função para mostrar o modal de erro do modelo
+        function mostrarErroModelo() {
+            new bootstrap.Modal(document.getElementById('erroModeloModal')).show();
+            return false;
         }
     </script>
 </body>

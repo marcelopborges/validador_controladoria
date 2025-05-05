@@ -48,11 +48,11 @@ def get_data_path():
             return os.path.join(os.path.dirname(sys.executable), "data")
         else:
             # Se estiver em desenvolvimento, volta 3 níveis para encontrar a pasta data
-            return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "data"))
+            return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data"))
     except Exception as e:
         logger.error(f"Erro ao determinar caminho da pasta data: {str(e)}")
         # Fallback para o caminho de desenvolvimento
-        return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "data"))
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data"))
 
 PROCESSED_DIR = Path(get_data_path()) / "processados"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
