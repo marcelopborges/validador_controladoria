@@ -74,60 +74,9 @@
                     <a href="{{ url_for('exportar_excel', n_conta=filtros.n_conta, n_centro_custo=filtros.n_centro_custo, data_inicio=filtros.data_inicio, data_fim=filtros.data_fim, versao=filtros.versao, filial=filtros.filial) }}" class="btn btn-success">
                         <i class="fas fa-file-excel"></i>
                     </a>
-                </div>
-            </form>
-        </div>
-    </div>
-    
-    <!-- Deletar por Versão -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0">Deletar por Versão</h5>
-        </div>
-        <div class="card-body">
-            <form method="POST" action="{{ url_for('deletar_por_versao') }}" class="row g-3">
-                <div class="col-md-4">
-                    <select class="form-select" name="VERSAO" required>
-                        <option value="">Selecione uma versão</option>
-                        {% for v in versoes %}
-                        <option value="{{ v }}">{{ v }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <button type="button" class="btn btn-danger w-100" data-bs-toggle="modal" data-bs-target="#deletarVersaoModal">
-                        Deletar Versão
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-    
-    <!-- Deletar por Filial -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0">Deletar por Filial (4 dígitos, ex: 0101)</h5>
-        </div>
-        <div class="card-body">
-            <form action="{{ url_for('deletar_por_filial') }}" method="post" class="row g-3">
-                <div class="col-md-4">
-                    <input type="text" 
-                           class="form-control" 
-                           id="filial" 
-                           name="FILIAL" 
-                           maxlength="4" 
-                           pattern="[0-9]{4}" 
-                           title="Digite os 4 dígitos da filial (ex: 0101)"
-                           oninput="this.value = this.value.replace(/[^0-9]/g, '')"
-                           placeholder="Digite os 4 dígitos">
-                    <small class="form-text text-muted">
-                        Digite os 4 dígitos da filial (ex: 0101)
-                    </small>
-                </div>
-                <div class="col-md-2">
-                    <button type="button" class="btn btn-danger w-100" data-bs-toggle="modal" data-bs-target="#deletarFilialModal">
-                        Deletar
-                    </button>
+                    <a href="{{ url_for('listar_registros') }}" class="btn btn-secondary" title="Limpar filtros">
+                        <i class="fas fa-eraser"></i>
+                    </a>
                 </div>
             </form>
         </div>
@@ -140,15 +89,15 @@
             <div class="d-flex justify-content-between align-items-center">
                 <div>
                     <i class="fas fa-info-circle"></i>
-                    <strong>Total de registros encontrados:</strong> {{ registros|length }}
-                    {% if registros|length >= 1000 %}
+                    <strong>Total de registros encontrados:</strong> {{ total_registros }}
+                    {% if total_registros > 100 %}
                     <span class="text-warning">
                         <i class="fas fa-exclamation-triangle"></i>
-                        Apenas os primeiros 1000 registros estão sendo exibidos
+                        Apenas os primeiros 100 registros estão sendo exibidos
                     </span>
                     {% endif %}
                 </div>
-                {% if registros|length >= 1000 %}
+                {% if total_registros > 100 %}
                 <div>
                     <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#ajudaModal">
                         <i class="fas fa-question-circle"></i> Como ver mais registros?
@@ -340,70 +289,6 @@
                     </button>
                 </form>
             </div>
-        </div>
-    </div>
-</div>
-
-<!-- Modal de Confirmação de Deleção por Versão -->
-<div class="modal fade" id="deletarVersaoModal" tabindex="-1" aria-labelledby="deletarVersaoModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title" id="deletarVersaoModalLabel">
-                    <i class="fas fa-exclamation-triangle"></i> Confirmar Deleção por Versão
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-danger">
-                    <h6 class="alert-heading">ATENÇÃO!</h6>
-                    <p class="mb-0">Esta ação irá deletar TODOS os registros da versão selecionada.</p>
-                </div>
-                
-                <h6>Versão selecionada:</h6>
-                <ul class="list-group mb-3">
-                    <li class="list-group-item" id="versaoSelecionada"></li>
-                </ul>
-                
-                <div class="alert alert-warning">
-                    <i class="fas fa-exclamation-circle"></i>
-                    <strong>Importante:</strong> Esta ação NÃO pode ser desfeita.
-                </div>
-            </div>
-            <div class="modal-footer">
-                <form action="{{ url_for('deletar_por_versao') }}" method="POST">
-                    <input type="hidden" name="VERSAO" id="versaoDelete">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-danger">
-                        <i class="fas fa-trash"></i> Confirmar Deleção
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Modal de Confirmação de Deleção por Filial -->
-<div class="modal fade" id="deletarFilialModal" tabindex="-1" aria-labelledby="deletarFilialModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="deletarFilialModalLabel">Deletar por Filial</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <form action="{{ url_for('deletar_por_filial') }}" method="post">
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="FILIAL" class="form-label">Filial</label>
-                        <input type="text" class="form-control" id="FILIAL" name="FILIAL" required pattern="[0-9]{4}" placeholder="Ex: 0103">
-                        <div class="form-text">Digite a filial no formato 4 dígitos (ex: 0103)</div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-danger">Deletar</button>
-                </div>
-            </form>
         </div>
     </div>
 </div>

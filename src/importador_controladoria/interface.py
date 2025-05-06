@@ -782,9 +782,9 @@ def listar_registros():
         
         # Adiciona os filtros
         if n_conta:
-            query += f" AND N_CONTA = {n_conta}"
+            query += f" AND CAST(N_CONTA AS STRING) = '{n_conta}'"
         if n_centro_custo:
-            query += f" AND N_CENTRO_CUSTO = {n_centro_custo}"
+            query += f" AND CAST(N_CENTRO_CUSTO AS STRING) = '{n_centro_custo}'"
         if data_inicio:
             query += f" AND DATA >= '{data_inicio}'"
         if data_fim:
@@ -794,12 +794,39 @@ def listar_registros():
         if operacao:
             query += f" AND OPERACAO = '{operacao}'"
         if filial:
-            query += f" AND FILIAL = '{filial}'"
+            query += f" AND CAST(FILIAL AS STRING) = '{filial}'"
         
-        # Adiciona ordenação e limite
-        query += " ORDER BY DATA_ATUALIZACAO DESC LIMIT 1000"
+        # Query para contar o total de registros
+        count_query = f"""
+            SELECT COUNT(*) as total
+            FROM `{dataset_id}.{table_id}`
+            WHERE 1=1
+        """
         
-        # Executa a query
+        # Adiciona os mesmos filtros na query de contagem
+        if n_conta:
+            count_query += f" AND CAST(N_CONTA AS STRING) = '{n_conta}'"
+        if n_centro_custo:
+            count_query += f" AND CAST(N_CENTRO_CUSTO AS STRING) = '{n_centro_custo}'"
+        if data_inicio:
+            count_query += f" AND DATA >= '{data_inicio}'"
+        if data_fim:
+            count_query += f" AND DATA <= '{data_fim}'"
+        if versao:
+            count_query += f" AND VERSAO = '{versao}'"
+        if operacao:
+            count_query += f" AND OPERACAO = '{operacao}'"
+        if filial:
+            count_query += f" AND CAST(FILIAL AS STRING) = '{filial}'"
+        
+        # Executa a query de contagem
+        count_job = client.query(count_query)
+        total_registros = next(count_job.result()).total
+        
+        # Adiciona ordenação e limite na query principal
+        query += " ORDER BY DATA_ATUALIZACAO DESC LIMIT 100"
+        
+        # Executa a query principal
         query_job = client.query(query)
         registros = [dict(row) for row in query_job]
         
@@ -828,6 +855,7 @@ def listar_registros():
                              registros=registros, 
                              versoes=versoes,
                              filtros=filtros,
+                             total_registros=total_registros,
                              now=datetime.now())
                              
     except Exception as e:
