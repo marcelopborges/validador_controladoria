@@ -37,6 +37,7 @@ Este documento descreve todas as regras de validação e transformação aplicad
 - VALOR
 - DATA
 - VERSAO
+- FILIAL
 
 ## Campos Opcionais
 - OPERACAO (máximo 10 caracteres)
@@ -44,7 +45,7 @@ Este documento descreve todas as regras de validação e transformação aplicad
 ## Validações por Campo
 
 ### FILIAL
-- **Formato**: 4 dígitos, começando com "0" (ex: 0101, 0102, 0503)
+- **Formato**: 4 dígitos, começando com "0" (ex: 0103, 0102, 0503)
 - **Obrigatório**: Sim
 - **Tipo**: String (texto)
 - **Observação**: Se começar com números, será completado com zeros à esquerda

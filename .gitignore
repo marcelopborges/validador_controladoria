@@ -25,6 +25,7 @@ ENV/
 
 # Logs e dados
 logs/
+data/
 data/processados/
 data/rejeitados/
 

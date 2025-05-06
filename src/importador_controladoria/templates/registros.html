@@ -25,6 +25,19 @@
         <div class="card-body">
             <form method="GET" action="{{ url_for('listar_registros') }}" class="row g-3">
                 <div class="col-md-2">
+                    <label for="filial" class="form-label">Filial</label>
+                    <input type="text" 
+                           class="form-control" 
+                           id="filial" 
+                           name="filial" 
+                           maxlength="4" 
+                           pattern="[0-9]{4}" 
+                           title="Digite os 4 dígitos da filial (ex: 0101)"
+                           oninput="this.value = this.value.replace(/[^0-9]/g, '')"
+                           value="{{ filtros.filial }}"
+                           placeholder="0101">
+                </div>
+                <div class="col-md-2">
                     <label for="n_conta" class="form-label">Conta</label>
                     <input type="text" class="form-control" id="n_conta" name="n_conta" value="{{ filtros.n_conta }}">
                 </div>
@@ -58,7 +71,7 @@
                     <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deletarFiltrosModal">
                         <i class="fas fa-trash"></i>
                     </button>
-                    <a href="{{ url_for('exportar_excel', n_conta=filtros.n_conta, n_centro_custo=filtros.n_centro_custo, data_inicio=filtros.data_inicio, data_fim=filtros.data_fim, versao=filtros.versao) }}" class="btn btn-success">
+                    <a href="{{ url_for('exportar_excel', n_conta=filtros.n_conta, n_centro_custo=filtros.n_centro_custo, data_inicio=filtros.data_inicio, data_fim=filtros.data_fim, versao=filtros.versao, filial=filtros.filial) }}" class="btn btn-success">
                         <i class="fas fa-file-excel"></i>
                     </a>
                 </div>
@@ -90,30 +103,29 @@
         </div>
     </div>
     
-    <!-- Deletar por Centro de Custo -->
+    <!-- Deletar por Filial -->
     <div class="card mb-4">
         <div class="card-header">
             <h5 class="mb-0">Deletar por Filial (4 dígitos, ex: 0101)</h5>
         </div>
         <div class="card-body">
-            <form action="{{ url_for('deletar_por_centro_custo') }}" method="post" class="row g-3">
+            <form action="{{ url_for('deletar_por_filial') }}" method="post" class="row g-3">
                 <div class="col-md-4">
                     <input type="text" 
                            class="form-control" 
-                           id="centro_custo" 
-                           name="CENTRO_CUSTO" 
+                           id="filial" 
+                           name="FILIAL" 
                            maxlength="4" 
                            pattern="[0-9]{4}" 
                            title="Digite os 4 dígitos da filial (ex: 0101)"
                            oninput="this.value = this.value.replace(/[^0-9]/g, '')"
                            placeholder="Digite os 4 dígitos">
                     <small class="form-text text-muted">
-                        Digite os 4 dígitos da filial (ex: 0101). Serão deletados todos os centros de custo que começam com os 3 últimos dígitos.
+                        Digite os 4 dígitos da filial (ex: 0101)
                     </small>
                 </div>
                 <div class="col-md-2">
-                    <input type="hidden" name="CENTRO_CUSTO" id="centro_custo_delete">
-                    <button type="button" class="btn btn-danger w-100" onclick="atualizarFilial()" data-bs-toggle="modal" data-bs-target="#deletarFilialModal">
+                    <button type="button" class="btn btn-danger w-100" data-bs-toggle="modal" data-bs-target="#deletarFilialModal">
                         Deletar
                     </button>
                 </div>
@@ -149,6 +161,7 @@
         <table class="table table-striped">
             <thead>
                 <tr>
+                    <th>Filial</th>
                     <th>Conta</th>
                     <th>Centro de Custo</th>
                     <th>Descrição</th>
@@ -163,6 +176,7 @@
             <tbody>
                 {% for registro in registros %}
                 <tr>
+                    <td>{{ registro.FILIAL }}</td>
                     <td>{{ registro.N_CONTA }}</td>
                     <td>{{ registro.N_CENTRO_CUSTO }}</td>
                     <td>
@@ -373,42 +387,23 @@
 <div class="modal fade" id="deletarFilialModal" tabindex="-1" aria-labelledby="deletarFilialModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title" id="deletarFilialModalLabel">
-                    <i class="fas fa-exclamation-triangle"></i> Confirmar Deleção por Filial
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            <div class="modal-header">
+                <h5 class="modal-title" id="deletarFilialModalLabel">Deletar por Filial</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
-                <div class="alert alert-danger">
-                    <h6 class="alert-heading">ATENÇÃO!</h6>
-                    <p class="mb-0">Esta ação irá deletar TODOS os registros dos centros de custo que começam com os 3 últimos dígitos da filial.</p>
+            <form action="{{ url_for('deletar_por_filial') }}" method="post">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="FILIAL" class="form-label">Filial</label>
+                        <input type="text" class="form-control" id="FILIAL" name="FILIAL" required pattern="[0-9]{4}" placeholder="Ex: 0103">
+                        <div class="form-text">Digite a filial no formato 4 dígitos (ex: 0103)</div>
+                    </div>
                 </div>
-                
-                <h6>Informações:</h6>
-                <ul class="list-group mb-3">
-                    <li class="list-group-item">
-                        <strong>Filial digitada:</strong> <span id="filialDigitada"></span>
-                    </li>
-                    <li class="list-group-item">
-                        <strong>Centros de custo afetados:</strong> Todos que começam com <span id="centroCustoBase"></span>
-                    </li>
-                </ul>
-                
-                <div class="alert alert-warning">
-                    <i class="fas fa-exclamation-circle"></i>
-                    <strong>Importante:</strong> Esta ação NÃO pode ser desfeita.
-                </div>
-            </div>
-            <div class="modal-footer">
-                <form action="{{ url_for('deletar_por_centro_custo') }}" method="POST">
-                    <input type="hidden" name="CENTRO_CUSTO" id="centroCustoDelete">
+                <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-danger">
-                        <i class="fas fa-trash"></i> Confirmar Deleção
-                    </button>
-                </form>
-            </div>
+                    <button type="submit" class="btn btn-danger">Deletar</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -441,32 +436,16 @@ document.querySelector('select[name="VERSAO"]').addEventListener('change', funct
     document.getElementById('versaoSelecionada').textContent = versao;
 });
 
-// Função para extrair os 3 últimos dígitos da filial
-function extrairCentroCustoBase(filial) {
-    if (filial && filial.length === 4) {
-        return filial.substring(1); // Pega os 3 últimos dígitos
-    }
-    return '';
-}
-
 // Função para atualizar a filial no modal
 function atualizarFilial() {
-    const filial = document.getElementById('centro_custo').value;
-    const centroCustoBase = extrairCentroCustoBase(filial);
-    
-    document.getElementById('centroCustoDelete').value = centroCustoBase;
-    document.getElementById('filialDigitada').textContent = filial;
-    document.getElementById('centroCustoBase').textContent = centroCustoBase;
+    const filial = document.getElementById('filial').value;
+    document.getElementById('FILIAL').value = filial;
 }
 
 // Atualiza o modal quando a filial é digitada
-document.getElementById('centro_custo').addEventListener('input', function() {
+document.getElementById('filial').addEventListener('input', function() {
     const filial = this.value;
-    const centroCustoBase = extrairCentroCustoBase(filial);
-    
-    document.getElementById('centroCustoDelete').value = centroCustoBase;
-    document.getElementById('filialDigitada').textContent = filial;
-    document.getElementById('centroCustoBase').textContent = centroCustoBase;
+    document.getElementById('FILIAL').value = filial;
 });
 </script>
 

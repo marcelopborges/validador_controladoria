@@ -20,8 +20,9 @@ from pathlib import Path
 import markdown
 import webbrowser
 from threading import Timer
+from io import BytesIO
 
-from .transformacoes import transformar_dados
+from .transformacoes import transformar_dados, validar_data
 from .config import BIGQUERY_CONFIG
 
 # Configuração do Flask
@@ -259,7 +260,8 @@ class ProcessamentoThread(threading.Thread):
                 'DATA': pd.to_datetime(df['DATA']).dt.date if 'DATA' in df.columns else pd.to_datetime(df['data']).dt.date,
                 'VERSAO': df['VERSAO'].astype(str) if 'VERSAO' in df.columns else df['versao'].astype(str),
                 'OPERACAO': df['OPERACAO'].astype(str) if 'OPERACAO' in df.columns else '',
-                'DATA_ATUALIZACAO': pd.Timestamp.now()
+                'DATA_ATUALIZACAO': pd.Timestamp.now(),
+                'FILIAL': df['FILIAL'].astype(str) if 'FILIAL' in df.columns else ''
             })
             
             # Verifica se todos os centros de custo têm 9 dígitos
@@ -274,7 +276,7 @@ class ProcessamentoThread(threading.Thread):
             logger.info(f"Colunas do DataFrame BigQuery: {df_bigquery.columns.tolist()}")
             
             # Verifica se todas as colunas necessárias estão presentes
-            colunas_necessarias = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'VERSAO', 'OPERACAO', 'DATA_ATUALIZACAO']
+            colunas_necessarias = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'VERSAO', 'OPERACAO', 'DATA_ATUALIZACAO', 'FILIAL']
             colunas_faltantes = [col for col in colunas_necessarias if col not in df_bigquery.columns]
             if colunas_faltantes:
                 logger.error(f"Colunas faltando no DataFrame BigQuery: {colunas_faltantes}")
@@ -333,7 +335,8 @@ class ProcessamentoThread(threading.Thread):
                 bigquery.SchemaField("DATA", "DATE", mode="REQUIRED"),
                 bigquery.SchemaField("VERSAO", "STRING", mode="REQUIRED"),
                 bigquery.SchemaField("OPERACAO", "STRING", mode="NULLABLE"),
-                bigquery.SchemaField("DATA_ATUALIZACAO", "TIMESTAMP", mode="REQUIRED")
+                bigquery.SchemaField("DATA_ATUALIZACAO", "TIMESTAMP", mode="REQUIRED"),
+                bigquery.SchemaField("FILIAL", "STRING", mode="REQUIRED")
             ]
             
             # Obtém a versão dos dados que estão sendo importados
@@ -414,10 +417,11 @@ class ProcessamentoThread(threading.Thread):
                         T.DESCRICAO = S.DESCRICAO,
                         T.VALOR = S.VALOR,
                         T.OPERACAO = S.OPERACAO,
-                        T.DATA_ATUALIZACAO = CURRENT_TIMESTAMP()
+                        T.DATA_ATUALIZACAO = CURRENT_TIMESTAMP(),
+                        T.FILIAL = S.FILIAL
                 WHEN NOT MATCHED THEN
-                    INSERT (N_CONTA, N_CENTRO_CUSTO, DESCRICAO, VALOR, DATA, VERSAO, OPERACAO, DATA_ATUALIZACAO)
-                    VALUES (S.N_CONTA, S.N_CENTRO_CUSTO, S.DESCRICAO, S.VALOR, S.DATA, S.VERSAO, S.OPERACAO, CURRENT_TIMESTAMP())
+                    INSERT (N_CONTA, N_CENTRO_CUSTO, DESCRICAO, VALOR, DATA, VERSAO, OPERACAO, DATA_ATUALIZACAO, FILIAL)
+                    VALUES (S.N_CONTA, S.N_CENTRO_CUSTO, S.DESCRICAO, S.VALOR, S.DATA, S.VERSAO, S.OPERACAO, CURRENT_TIMESTAMP(), S.FILIAL)
                 """
                 
                 logger.info(f"Executando MERGE para {'importação completa' if is_importacao_completa else 'atualização parcial'}")
@@ -728,15 +732,16 @@ def download_modelo():
 
 @app.route('/registros')
 def listar_registros():
-    """Lista os registros da tabela ORCADO com filtros opcionais."""
+    """Lista os registros da tabela ORCADO."""
     try:
-        # Obtém os parâmetros de filtro
+        # Obtém os filtros da query string
         n_conta = request.args.get('n_conta', '')
         n_centro_custo = request.args.get('n_centro_custo', '')
         data_inicio = request.args.get('data_inicio', '')
         data_fim = request.args.get('data_fim', '')
         versao = request.args.get('versao', '')
         operacao = request.args.get('operacao', '')
+        filial = request.args.get('filial', '')
         
         # Verifica se o arquivo de credenciais existe
         if not BIGQUERY_CREDENTIALS_PATH.exists():
@@ -759,91 +764,75 @@ def listar_registros():
         dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
         table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
         
-        # Busca as versões disponíveis
-        try:
-            versoes_query = f"""
-            SELECT DISTINCT VERSAO
-            FROM `{dataset_id}.{table_id}`
-            ORDER BY VERSAO DESC
-            """
-            versoes_job = client.query(versoes_query)
-            versoes_result = versoes_job.result()
-            versoes = [row.VERSAO for row in versoes_result]
-            logger.info(f"Versões encontradas: {versoes}")
-        except Exception as e:
-            logger.error(f"Erro ao buscar versões: {str(e)}")
-            versoes = []
-        
-        # Constrói a query com os filtros
+        # Constrói a query base
         query = f"""
-        SELECT 
-            N_CONTA,
-            N_CENTRO_CUSTO,
-            DESCRICAO,
-            VALOR,
-            DATA,
-            VERSAO,
-            OPERACAO,
-            DATA_ATUALIZACAO
-        FROM `{dataset_id}.{table_id}`
-        WHERE 1=1
+            SELECT 
+                N_CONTA,
+                N_CENTRO_CUSTO,
+                DESCRICAO,
+                VALOR,
+                DATA,
+                VERSAO,
+                OPERACAO,
+                DATA_ATUALIZACAO,
+                FILIAL
+            FROM `{dataset_id}.{table_id}`
+            WHERE 1=1
         """
         
+        # Adiciona os filtros
         if n_conta:
-            query += f" AND N_CONTA LIKE '%{n_conta}%'"
+            query += f" AND N_CONTA = {n_conta}"
         if n_centro_custo:
-            query += f" AND N_CENTRO_CUSTO LIKE '%{n_centro_custo}%'"
+            query += f" AND N_CENTRO_CUSTO = {n_centro_custo}"
         if data_inicio:
-            query += f" AND DATA >= DATE('{data_inicio}')"
+            query += f" AND DATA >= '{data_inicio}'"
         if data_fim:
-            query += f" AND DATA <= DATE('{data_fim}')"
+            query += f" AND DATA <= '{data_fim}'"
         if versao:
             query += f" AND VERSAO = '{versao}'"
         if operacao:
-            query += f" AND OPERACAO LIKE '%{operacao}%'"
-            
-        query += " ORDER BY DATA DESC, N_CONTA, N_CENTRO_CUSTO LIMIT 1000"
+            query += f" AND OPERACAO = '{operacao}'"
+        if filial:
+            query += f" AND FILIAL = '{filial}'"
+        
+        # Adiciona ordenação e limite
+        query += " ORDER BY DATA_ATUALIZACAO DESC LIMIT 1000"
         
         # Executa a query
         query_job = client.query(query)
-        resultados = query_job.result()
+        registros = [dict(row) for row in query_job]
         
-        # Converte os resultados para uma lista de dicionários
-        registros = []
-        for row in resultados:
-            registro = {
-                'N_CONTA': row.N_CONTA,
-                'N_CENTRO_CUSTO': row.N_CENTRO_CUSTO,
-                'DESCRICAO': row.DESCRICAO,
-                'VALOR': float(row.VALOR),
-                'DATA': row.DATA.strftime('%d/%m/%Y'),
-                'VERSAO': row.VERSAO,
-                'OPERACAO': row.OPERACAO,
-                'DATA_ATUALIZACAO': row.DATA_ATUALIZACAO.strftime('%d/%m/%Y %H:%M:%S')
-            }
-            registros.append(registro)
+        # Obtém a lista de versões para o filtro
+        versoes_query = f"""
+            SELECT DISTINCT VERSAO 
+            FROM `{dataset_id}.{table_id}`
+            ORDER BY VERSAO DESC
+        """
         
-        logger.info(f"Total de registros encontrados: {len(registros)}")
-        if registros:
-            logger.info(f"Primeiro registro: {registros[0]}")
-            logger.info(f"Último registro: {registros[-1]}")
+        versoes_job = client.query(versoes_query)
+        versoes = [row.VERSAO for row in versoes_job]
+        
+        # Prepara os filtros para o template
+        filtros = {
+            'n_conta': n_conta,
+            'n_centro_custo': n_centro_custo,
+            'data_inicio': data_inicio,
+            'data_fim': data_fim,
+            'versao': versao,
+            'operacao': operacao,
+            'filial': filial
+        }
         
         return render_template('registros.html', 
                              registros=registros, 
                              versoes=versoes,
-                             filtros={
-                                 'n_conta': n_conta,
-                                 'n_centro_custo': n_centro_custo,
-                                 'data_inicio': data_inicio,
-                                 'data_fim': data_fim,
-                                 'versao': versao,
-                                 'operacao': operacao
-                             },
+                             filtros=filtros,
                              now=datetime.now())
-        
+                             
     except Exception as e:
-        logger.error(f"Erro ao listar registros do BigQuery: {str(e)}")
-        flash(f"Erro ao listar registros: {str(e)}", "error")
+        logger.error(f"Erro ao listar registros: {str(e)}")
+        flash(f"Erro ao listar registros: {str(e)}", "danger")
         return redirect(url_for('index'))
 
 @app.route('/registros/editar', methods=['POST'])
@@ -1142,14 +1131,14 @@ def deletar_por_versao():
         
     return redirect(url_for('listar_registros'))
 
-@app.route('/registros/deletar_centro_custo', methods=['POST'])
-def deletar_por_centro_custo():
-    """Deleta todos os registros de um centro de custo específico."""
+@app.route('/registros/deletar_filial', methods=['POST'])
+def deletar_por_filial():
+    """Deleta todos os registros de uma filial específica."""
     try:
-        centro_custo = request.form.get('CENTRO_CUSTO')
+        filial = request.form.get('FILIAL')
         
-        if not centro_custo:
-            flash("Centro de custo não especificado", "error")
+        if not filial:
+            flash("Filial não especificada", "error")
             return redirect(url_for('listar_registros'))
         
         # Verifica se o arquivo de credenciais existe
@@ -1177,7 +1166,7 @@ def deletar_por_centro_custo():
         # Query para deletar os registros
         query = f"""
         DELETE FROM `{dataset_id}.{table_id}`
-        WHERE N_CENTRO_CUSTO LIKE '{centro_custo}%'
+        WHERE FILIAL = '{filial}'
         """
         
         # Executa a query
@@ -1190,10 +1179,10 @@ def deletar_por_centro_custo():
             "USUARIO": str(getpass.getuser()),
             "SISTEMA_OPERACIONAL": str(platform.system()),
             "VERSAO_SISTEMA": str(platform.version()),
-            "ARQUIVO_ORIGEM": f"DELETADO: Centro de Custo {centro_custo}",
+            "ARQUIVO_ORIGEM": f"DELETADO: Filial {filial}",
             "TOTAL_REGISTROS": 0,  # Não sabemos o número exato de registros deletados
             "STATUS": "DELETADO",
-            "DETALHES": f"Registros deletados para centro de custo iniciando com {centro_custo}"
+            "DETALHES": f"Registros deletados para filial {filial}"
         }
         
         # Cria o DataFrame com tipos explícitos
@@ -1233,128 +1222,113 @@ def deletar_por_centro_custo():
         )
         metadata_job.result()
         
-        flash(f"Registros do centro de custo {centro_custo} foram deletados com sucesso", "success")
+        flash(f"Registros da filial {filial} foram deletados com sucesso", "success")
         
     except Exception as e:
-        logger.error(f"Erro ao deletar registros por centro de custo: {str(e)}")
+        logger.error(f"Erro ao deletar registros por filial: {str(e)}")
         flash(f"Erro ao deletar registros: {str(e)}", "error")
         
     return redirect(url_for('listar_registros'))
 
-@app.route('/registros/exportar_excel')
+@app.route('/exportar-excel')
 def exportar_excel():
-    """Exporta os registros do BigQuery para um arquivo Excel."""
+    """Exporta os registros filtrados para Excel."""
     try:
-        # Obtém os parâmetros de filtro
+        # Obtém os filtros da query string
         n_conta = request.args.get('n_conta', '')
         n_centro_custo = request.args.get('n_centro_custo', '')
         data_inicio = request.args.get('data_inicio', '')
         data_fim = request.args.get('data_fim', '')
         versao = request.args.get('versao', '')
+        operacao = request.args.get('operacao', '')
+        filial = request.args.get('filial', '')
         
-        # Verifica se o arquivo de credenciais existe
-        if not BIGQUERY_CREDENTIALS_PATH.exists():
-            flash("Credenciais do BigQuery não encontradas", "error")
-            return redirect(url_for('listar_registros'))
-            
-        # Cria as credenciais a partir do arquivo JSON
-        credentials = service_account.Credentials.from_service_account_file(
-            BIGQUERY_CREDENTIALS_PATH,
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
+        # Constrói a query base
+        query = """
+            SELECT 
+                N_CONTA,
+                N_CENTRO_CUSTO,
+                DESCRICAO,
+                VALOR,
+                DATA,
+                VERSAO,
+                OPERACAO,
+                DATA_ATUALIZACAO
+            FROM `{project}.{dataset}.{table}`
+            WHERE 1=1
+        """.format(**BIGQUERY_CONFIG)
         
-        # Inicializa o cliente do BigQuery
-        client = bigquery.Client(
-            project=BIGQUERY_CONFIG.get("project_id", "projeto-teste"),
-            credentials=credentials
-        )
-        
-        # Define o ID do dataset e tabela
-        dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
-        table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
-        
-        # Constrói a query com os filtros
-        query = f"""
-        SELECT 
-            N_CONTA,
-            N_CENTRO_CUSTO,
-            DESCRICAO,
-            VALOR,
-            DATA,
-            VERSAO,
-            OPERACAO,
-            DATA_ATUALIZACAO
-        FROM `{dataset_id}.{table_id}`
-        WHERE 1=1
-        """
-        
+        # Adiciona os filtros
         if n_conta:
-            query += f" AND N_CONTA LIKE '%{n_conta}%'"
+            query += f" AND N_CONTA = {n_conta}"
         if n_centro_custo:
-            query += f" AND N_CENTRO_CUSTO LIKE '%{n_centro_custo}%'"
+            query += f" AND N_CENTRO_CUSTO = {n_centro_custo}"
         if data_inicio:
-            query += f" AND DATA >= DATE('{data_inicio}')"
+            query += f" AND DATA >= '{data_inicio}'"
         if data_fim:
-            query += f" AND DATA <= DATE('{data_fim}')"
+            query += f" AND DATA <= '{data_fim}'"
         if versao:
             query += f" AND VERSAO = '{versao}'"
-            
-        query += " ORDER BY DATA DESC, N_CONTA, N_CENTRO_CUSTO"
+        if operacao:
+            query += f" AND OPERACAO = '{operacao}'"
+        if filial:
+            query += f" AND FILIAL = '{filial}'"
+        
+        # Adiciona ordenação
+        query += " ORDER BY DATA_ATUALIZACAO DESC"
         
         # Executa a query
+        client = get_bigquery_client()
         query_job = client.query(query)
-        resultados = query_job.result()
+        registros = [dict(row) for row in query_job]
         
-        # Converte os resultados para um DataFrame
-        registros = []
-        for row in resultados:
-            registro = {
-                'N_CONTA': row.N_CONTA,
-                'N_CENTRO_CUSTO': row.N_CENTRO_CUSTO,
-                'DESCRICAO': row.DESCRICAO,
-                'VALOR': float(row.VALOR),
-                'DATA': row.DATA.strftime('%d/%m/%Y'),
-                'VERSAO': row.VERSAO,
-                'OPERACAO': row.OPERACAO,
-                'DATA_ATUALIZACAO': row.DATA_ATUALIZACAO.strftime('%d/%m/%Y %H:%M:%S')
-            }
-            registros.append(registro)
-        
+        # Cria um DataFrame com os registros
         df = pd.DataFrame(registros)
         
-        # Cria um arquivo Excel temporário
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
-        excel_path = temp_file.name
-        temp_file.close()
+        # Formata as colunas
+        df['DATA'] = pd.to_datetime(df['DATA']).dt.strftime('%d/%m/%Y')
+        df['DATA_ATUALIZACAO'] = pd.to_datetime(df['DATA_ATUALIZACAO']).dt.strftime('%d/%m/%Y %H:%M:%S')
+        df['VALOR'] = df['VALOR'].apply(lambda x: f"R$ {x:,.2f}")
         
-        # Salva o DataFrame no arquivo Excel
-        with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Registros')
+        # Renomeia as colunas
+        df = df.rename(columns={
+            'N_CONTA': 'Conta',
+            'N_CENTRO_CUSTO': 'Centro de Custo',
+            'DESCRICAO': 'Descrição',
+            'VALOR': 'Valor',
+            'DATA': 'Data',
+            'VERSAO': 'Versão',
+            'OPERACAO': 'Operação',
+            'DATA_ATUALIZACAO': 'Data de Atualização'
+        })
+        
+        # Cria o arquivo Excel
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, sheet_name='Registros', index=False)
             
             # Ajusta a largura das colunas
             worksheet = writer.sheets['Registros']
-            for idx, col in enumerate(df.columns):
-                max_length = max(
-                    df[col].astype(str).apply(len).max(),
-                    len(col)
-                )
-                worksheet.column_dimensions[chr(65 + idx)].width = max_length + 2
+            for i, col in enumerate(df.columns):
+                max_length = max(df[col].astype(str).apply(len).max(), len(col)) + 2
+                worksheet.set_column(i, i, max_length)
         
-        # Gera o nome do arquivo
+        output.seek(0)
+        
+        # Gera o nome do arquivo com timestamp
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"registros_exportados_{timestamp}.xlsx"
+        filename = f'registros_{timestamp}.xlsx'
         
-        # Envia o arquivo
         return send_file(
-            excel_path,
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             as_attachment=True,
-            download_name=filename,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            download_name=filename
         )
         
     except Exception as e:
-        logger.error(f"Erro ao exportar registros para Excel: {str(e)}")
-        flash(f"Erro ao exportar registros: {str(e)}", "error")
+        logger.error(f"Erro ao exportar para Excel: {str(e)}")
+        flash(f"Erro ao exportar para Excel: {str(e)}", "danger")
         return redirect(url_for('listar_registros'))
 
 @app.route('/registros/deletar_filtros', methods=['POST'])
