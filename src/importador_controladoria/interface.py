@@ -7,6 +7,7 @@ import pandas as pd
 import threading
 from google.cloud import bigquery
 from google.oauth2 import service_account
+from google.cloud import storage
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file
 from werkzeug.utils import secure_filename
 import tempfile
@@ -23,7 +24,7 @@ from threading import Timer
 from io import BytesIO
 
 from .transformacoes import transformar_dados, validar_data
-from .config import BIGQUERY_CONFIG
+from .config import BIGQUERY_CONFIG, GCP_STORAGE_CONFIG
 
 # Configuração do Flask
 app = Flask(__name__, 
@@ -703,31 +704,49 @@ def progresso(processamento_id):
 
 @app.route('/download_modelo')
 def download_modelo():
-    """Rota para download do arquivo de exemplo."""
+    """Rota para download do arquivo de exemplo do GCP Storage."""
     try:
-        # Obtém o caminho da pasta data
-        data_path = get_data_path()
-        arquivo_exemplo = os.path.join(data_path, "modelo_importacao.xlsx")
-        
-        logger.info(f"Procurando arquivo de exemplo em: {arquivo_exemplo}")
-        
-        if not os.path.exists(arquivo_exemplo):
-            logger.error(f"Arquivo de exemplo não encontrado em: {arquivo_exemplo}")
-            flash("Arquivo de exemplo não encontrado", "error")
+        # Verifica se o arquivo de credenciais existe
+        if not BIGQUERY_CREDENTIALS_PATH.exists():
+            logger.error(f"Arquivo de credenciais não encontrado em: {BIGQUERY_CREDENTIALS_PATH}")
+            flash("Credenciais do GCP não encontradas", "error")
             return redirect(url_for('index'))
+            
+        # Cria as credenciais a partir do arquivo JSON
+        credentials = service_account.Credentials.from_service_account_file(
+            BIGQUERY_CREDENTIALS_PATH,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        logger.info("Credenciais do GCP carregadas com sucesso")
         
-        logger.info(f"Enviando arquivo de exemplo: {arquivo_exemplo}")
+        # Inicializa o cliente do Storage
+        storage_client = storage.Client(
+            project=BIGQUERY_CONFIG.get("project_id", "projeto-teste"),
+            credentials=credentials
+        )
+        logger.info(f"Cliente Storage inicializado com projeto: {BIGQUERY_CONFIG.get('project_id')}")
+        
+        # Obtém o bucket
+        bucket = storage_client.bucket(GCP_STORAGE_CONFIG["bucket_name"])
+        blob = bucket.blob(GCP_STORAGE_CONFIG["modelo_path"])
+        
+        # Cria um arquivo temporário
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+        
+        # Download do arquivo
+        blob.download_to_filename(temp_file.name)
+        logger.info(f"Arquivo modelo baixado com sucesso do GCP Storage: {GCP_STORAGE_CONFIG['modelo_path']}")
         
         # Retorna o arquivo para download
         return send_file(
-            arquivo_exemplo,
+            temp_file.name,
             as_attachment=True,
             download_name="modelo_importacao.xlsx",
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     except Exception as e:
-        logger.error(f"Erro ao gerar arquivo de exemplo: {str(e)}")
-        flash("Erro ao gerar arquivo de exemplo", "error")
+        logger.error(f"Erro ao baixar arquivo modelo do GCP Storage: {str(e)}")
+        flash("Erro ao baixar arquivo modelo", "error")
         return redirect(url_for('index'))
 
 @app.route('/registros')

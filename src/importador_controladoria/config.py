@@ -24,6 +24,12 @@ BIGQUERY_CONFIG = {
     "metadata_table_id": os.getenv("BIGQUERY_METADATA_TABLE_ID", "ORCADO_METADATA")
 }
 
+# Configuração do GCP Storage
+GCP_STORAGE_CONFIG = {
+    "bucket_name": os.getenv("GCP_STORAGE_BUCKET", "sian-controladoria-raw"),
+    "modelo_path": os.getenv("GCP_STORAGE_MODELO_PATH", "utils/modelo_importacao.xlsx")
+}
+
 # Tenta carregar credenciais do arquivo ou usa variáveis de ambiente
 try:
     credentials_path = BASE_DIR / "config" / "bigquery-credentials.json"
