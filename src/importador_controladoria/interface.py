@@ -1290,8 +1290,29 @@ def exportar_excel():
         operacao = request.args.get('operacao', '')
         filial = request.args.get('filial', '')
         
+        # Verifica se o arquivo de credenciais existe
+        if not BIGQUERY_CREDENTIALS_PATH.exists():
+            flash("Credenciais do BigQuery não encontradas", "error")
+            return redirect(url_for('listar_registros'))
+            
+        # Cria as credenciais a partir do arquivo JSON
+        credentials = service_account.Credentials.from_service_account_file(
+            BIGQUERY_CREDENTIALS_PATH,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        
+        # Inicializa o cliente do BigQuery
+        client = bigquery.Client(
+            project=BIGQUERY_CONFIG.get("project_id", "projeto-teste"),
+            credentials=credentials
+        )
+        
+        # Define o ID do dataset e tabela
+        dataset_id = BIGQUERY_CONFIG.get("dataset_id", "silver")
+        table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
+        
         # Constrói a query base
-        query = """
+        query = f"""
             SELECT 
                 N_CONTA,
                 N_CENTRO_CUSTO,
@@ -1300,32 +1321,32 @@ def exportar_excel():
                 DATA,
                 VERSAO,
                 OPERACAO,
-                DATA_ATUALIZACAO
-            FROM `{project}.{dataset}.{table}`
+                DATA_ATUALIZACAO,
+                FILIAL
+            FROM `{BIGQUERY_CONFIG.get('project_id')}.{dataset_id}.{table_id}`
             WHERE 1=1
-        """.format(**BIGQUERY_CONFIG)
+        """
         
         # Adiciona os filtros
         if n_conta:
-            query += f" AND N_CONTA = {n_conta}"
+            query += f" AND CAST(N_CONTA AS STRING) = '{n_conta}'"
         if n_centro_custo:
-            query += f" AND N_CENTRO_CUSTO = {n_centro_custo}"
+            query += f" AND CAST(N_CENTRO_CUSTO AS STRING) = '{n_centro_custo}'"
         if data_inicio:
-            query += f" AND DATA >= '{data_inicio}'"
+            query += f" AND DATA >= DATE('{data_inicio}')"
         if data_fim:
-            query += f" AND DATA <= '{data_fim}'"
+            query += f" AND DATA <= DATE('{data_fim}')"
         if versao:
             query += f" AND VERSAO = '{versao}'"
         if operacao:
             query += f" AND OPERACAO = '{operacao}'"
         if filial:
-            query += f" AND FILIAL = '{filial}'"
+            query += f" AND CAST(FILIAL AS STRING) = '{filial}'"
         
         # Adiciona ordenação
         query += " ORDER BY DATA_ATUALIZACAO DESC"
         
         # Executa a query
-        client = get_bigquery_client()
         query_job = client.query(query)
         registros = [dict(row) for row in query_job]
         
@@ -1346,7 +1367,8 @@ def exportar_excel():
             'DATA': 'Data',
             'VERSAO': 'Versão',
             'OPERACAO': 'Operação',
-            'DATA_ATUALIZACAO': 'Data de Atualização'
+            'DATA_ATUALIZACAO': 'Data de Atualização',
+            'FILIAL': 'Filial'
         })
         
         # Cria o arquivo Excel
@@ -1424,9 +1446,9 @@ def deletar_por_filtros():
         """
         
         if n_conta:
-            count_query += f" AND N_CONTA LIKE '%{n_conta}%'"
+            count_query += f" AND CAST(N_CONTA AS STRING) = '{n_conta}'"
         if n_centro_custo:
-            count_query += f" AND N_CENTRO_CUSTO LIKE '%{n_centro_custo}%'"
+            count_query += f" AND CAST(N_CENTRO_CUSTO AS STRING) = '{n_centro_custo}'"
         if data_inicio:
             count_query += f" AND DATA >= DATE('{data_inicio}')"
         if data_fim:
@@ -1450,9 +1472,9 @@ def deletar_por_filtros():
         """
         
         if n_conta:
-            delete_query += f" AND N_CONTA LIKE '%{n_conta}%'"
+            delete_query += f" AND CAST(N_CONTA AS STRING) = '{n_conta}'"
         if n_centro_custo:
-            delete_query += f" AND N_CENTRO_CUSTO LIKE '%{n_centro_custo}%'"
+            delete_query += f" AND CAST(N_CENTRO_CUSTO AS STRING) = '{n_centro_custo}'"
         if data_inicio:
             delete_query += f" AND DATA >= DATE('{data_inicio}')"
         if data_fim:

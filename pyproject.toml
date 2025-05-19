@@ -19,6 +19,7 @@ dependencies = [
     "markdown>=3.5.1",
     "pyinstaller>=6.13.0",
     "google-cloud-storage>=3.1.0",
+    "xlsxwriter>=3.2.3",
 ]
 
 [build-system]
