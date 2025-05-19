@@ -254,6 +254,9 @@
                 
                 <h6>Filtros atuais:</h6>
                 <ul class="list-group mb-3">
+                    {% if filtros.filial %}
+                    <li class="list-group-item">Filial: {{ filtros.filial }}</li>
+                    {% endif %}
                     {% if filtros.n_conta %}
                     <li class="list-group-item">Conta: {{ filtros.n_conta }}</li>
                     {% endif %}
@@ -269,6 +272,9 @@
                     {% if filtros.versao %}
                     <li class="list-group-item">Versão: {{ filtros.versao }}</li>
                     {% endif %}
+                    {% if filtros.operacao %}
+                    <li class="list-group-item">Operação: {{ filtros.operacao }}</li>
+                    {% endif %}
                 </ul>
                 
                 <div class="alert alert-warning">
@@ -278,11 +284,13 @@
             </div>
             <div class="modal-footer">
                 <form action="{{ url_for('deletar_por_filtros') }}" method="POST">
+                    <input type="hidden" name="filial" value="{{ filtros.filial }}">
                     <input type="hidden" name="n_conta" value="{{ filtros.n_conta }}">
                     <input type="hidden" name="n_centro_custo" value="{{ filtros.n_centro_custo }}">
                     <input type="hidden" name="data_inicio" value="{{ filtros.data_inicio }}">
                     <input type="hidden" name="data_fim" value="{{ filtros.data_fim }}">
                     <input type="hidden" name="versao" value="{{ filtros.versao }}">
+                    <input type="hidden" name="operacao" value="{{ filtros.operacao }}">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-danger">
                         <i class="fas fa-trash"></i> Confirmar Deleção

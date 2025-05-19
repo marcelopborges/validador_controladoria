@@ -1410,9 +1410,11 @@ def deletar_por_filtros():
         data_inicio = request.form.get('data_inicio', '')
         data_fim = request.form.get('data_fim', '')
         versao = request.form.get('versao', '')
+        filial = request.form.get('filial', '')
+        operacao = request.form.get('operacao', '')
         
         # Verifica se pelo menos um filtro foi aplicado
-        if not any([n_conta, n_centro_custo, data_inicio, data_fim, versao]):
+        if not any([n_conta, n_centro_custo, data_inicio, data_fim, versao, filial, operacao]):
             flash("É necessário aplicar pelo menos um filtro para deletar registros", "error")
             return redirect(url_for('listar_registros'))
         
@@ -1455,6 +1457,10 @@ def deletar_por_filtros():
             count_query += f" AND DATA <= DATE('{data_fim}')"
         if versao:
             count_query += f" AND VERSAO = '{versao}'"
+        if filial:
+            count_query += f" AND CAST(FILIAL AS STRING) = '{filial}'"
+        if operacao:
+            count_query += f" AND OPERACAO = '{operacao}'"
         
         # Executa a query de contagem
         count_job = client.query(count_query)
@@ -1481,6 +1487,10 @@ def deletar_por_filtros():
             delete_query += f" AND DATA <= DATE('{data_fim}')"
         if versao:
             delete_query += f" AND VERSAO = '{versao}'"
+        if filial:
+            delete_query += f" AND CAST(FILIAL AS STRING) = '{filial}'"
+        if operacao:
+            delete_query += f" AND OPERACAO = '{operacao}'"
         
         # Executa a query de deleção
         delete_job = client.query(delete_query)
@@ -1495,7 +1505,7 @@ def deletar_por_filtros():
             "ARQUIVO_ORIGEM": f"DELETADO: Filtros aplicados",
             "TOTAL_REGISTROS": total_registros,
             "STATUS": "DELETADO",
-            "DETALHES": f"Registros deletados com filtros: Conta={n_conta}, Centro Custo={n_centro_custo}, Data Início={data_inicio}, Data Fim={data_fim}, Versão={versao}"
+            "DETALHES": f"Registros deletados com filtros: Filial={filial}, Conta={n_conta}, Centro Custo={n_centro_custo}, Data Início={data_inicio}, Data Fim={data_fim}, Versão={versao}, Operação={operacao}"
         }
         
         # Cria o DataFrame com tipos explícitos
