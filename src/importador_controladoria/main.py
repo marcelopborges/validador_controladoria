@@ -6,7 +6,7 @@ import pandas as pd
 from datetime import datetime
 from google.cloud import bigquery
 from google.oauth2 import service_account
-import great_expectations as gx
+# import great_expectations as gx
 
 from .config import (
     BASE_DIR, DATA_DIR, LOG_DIR, CONFIG_DIR,

@@ -245,9 +245,13 @@ class ProcessamentoThread(threading.Thread):
             for col in df.select_dtypes(include=['number']).columns:
                 df[col] = df[col].fillna(0)
                 
-            # Garante que a coluna OPERACAO está preenchida
+            # Garante que as colunas opcionais estão preenchidas
             if 'OPERACAO' in df.columns:
                 df['OPERACAO'] = df['OPERACAO'].astype(str)
+            if 'RATEIO' in df.columns:
+                df['RATEIO'] = df['RATEIO'].astype(str)
+            if 'ORIGEM' in df.columns:
+                df['ORIGEM'] = df['ORIGEM'].astype(str)
                 
             logger.info(f"Dados limpos para BigQuery. Shape: {df.shape}")
             logger.info(f"Colunas do DataFrame: {df.columns.tolist()}")
@@ -262,7 +266,9 @@ class ProcessamentoThread(threading.Thread):
                 'VERSAO': df['VERSAO'].astype(str) if 'VERSAO' in df.columns else df['versao'].astype(str),
                 'OPERACAO': df['OPERACAO'].astype(str) if 'OPERACAO' in df.columns else '',
                 'DATA_ATUALIZACAO': pd.Timestamp.now(),
-                'FILIAL': df['FILIAL'].astype(str) if 'FILIAL' in df.columns else ''
+                'FILIAL': df['FILIAL'].astype(str) if 'FILIAL' in df.columns else '',
+                'RATEIO': df['RATEIO'].astype(str) if 'RATEIO' in df.columns else '',
+                'ORIGEM': df['ORIGEM'].astype(str) if 'ORIGEM' in df.columns else ''
             })
             
             # Verifica se todos os centros de custo têm 9 dígitos
@@ -277,7 +283,7 @@ class ProcessamentoThread(threading.Thread):
             logger.info(f"Colunas do DataFrame BigQuery: {df_bigquery.columns.tolist()}")
             
             # Verifica se todas as colunas necessárias estão presentes
-            colunas_necessarias = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'VERSAO', 'OPERACAO', 'DATA_ATUALIZACAO', 'FILIAL']
+            colunas_necessarias = ['N_CONTA', 'N_CENTRO_CUSTO', 'DESCRICAO', 'VALOR', 'DATA', 'VERSAO', 'OPERACAO', 'DATA_ATUALIZACAO', 'FILIAL', 'RATEIO', 'ORIGEM']
             colunas_faltantes = [col for col in colunas_necessarias if col not in df_bigquery.columns]
             if colunas_faltantes:
                 logger.error(f"Colunas faltando no DataFrame BigQuery: {colunas_faltantes}")
@@ -337,7 +343,9 @@ class ProcessamentoThread(threading.Thread):
                 bigquery.SchemaField("VERSAO", "STRING", mode="REQUIRED"),
                 bigquery.SchemaField("OPERACAO", "STRING", mode="NULLABLE"),
                 bigquery.SchemaField("DATA_ATUALIZACAO", "TIMESTAMP", mode="REQUIRED"),
-                bigquery.SchemaField("FILIAL", "STRING", mode="REQUIRED")
+                bigquery.SchemaField("FILIAL", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("RATEIO", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("ORIGEM", "STRING", mode="NULLABLE")
             ]
             
             # Obtém a versão dos dados que estão sendo importados
@@ -386,8 +394,28 @@ class ProcessamentoThread(threading.Thread):
                 
                 # Verifica se a tabela principal existe, se não, cria ela
                 try:
-                    client.get_table(f"{dataset_id}.{table_id}")
+                    table_ref = client.dataset(dataset_id).table(table_id)
+                    table = client.get_table(table_ref)
                     logger.info(f"Tabela {table_id} já existe")
+                    
+                    # Verificar se as colunas RATEIO e ORIGEM existem
+                    existing_fields = [field.name for field in table.schema]
+                    missing_fields = []
+                    
+                    if 'RATEIO' not in existing_fields:
+                        missing_fields.append(bigquery.SchemaField("RATEIO", "STRING", mode="NULLABLE"))
+                        logger.info("Coluna RATEIO não encontrada, será adicionada")
+                    if 'ORIGEM' not in existing_fields:
+                        missing_fields.append(bigquery.SchemaField("ORIGEM", "STRING", mode="NULLABLE"))
+                        logger.info("Coluna ORIGEM não encontrada, será adicionada")
+                    
+                    if missing_fields:
+                        logger.info(f"Adicionando colunas faltantes: {[f.name for f in missing_fields]}")
+                        new_schema = table.schema + missing_fields
+                        table.schema = new_schema
+                        table = client.update_table(table, ["schema"])
+                        logger.info("Schema da tabela atualizado com sucesso")
+                        
                 except Exception as e:
                     logger.info(f"Criando tabela {table_id} com o schema definido")
                     table_ref = client.dataset(dataset_id).table(table_id)
@@ -419,10 +447,12 @@ class ProcessamentoThread(threading.Thread):
                         T.VALOR = S.VALOR,
                         T.OPERACAO = S.OPERACAO,
                         T.DATA_ATUALIZACAO = CURRENT_TIMESTAMP(),
-                        T.FILIAL = S.FILIAL
+                        T.FILIAL = S.FILIAL,
+                        T.RATEIO = S.RATEIO,
+                        T.ORIGEM = S.ORIGEM
                 WHEN NOT MATCHED THEN
-                    INSERT (N_CONTA, N_CENTRO_CUSTO, DESCRICAO, VALOR, DATA, VERSAO, OPERACAO, DATA_ATUALIZACAO, FILIAL)
-                    VALUES (S.N_CONTA, S.N_CENTRO_CUSTO, S.DESCRICAO, S.VALOR, S.DATA, S.VERSAO, S.OPERACAO, CURRENT_TIMESTAMP(), S.FILIAL)
+                    INSERT (N_CONTA, N_CENTRO_CUSTO, DESCRICAO, VALOR, DATA, VERSAO, OPERACAO, DATA_ATUALIZACAO, FILIAL, RATEIO, ORIGEM)
+                    VALUES (S.N_CONTA, S.N_CENTRO_CUSTO, S.DESCRICAO, S.VALOR, S.DATA, S.VERSAO, S.OPERACAO, CURRENT_TIMESTAMP(), S.FILIAL, S.RATEIO, S.ORIGEM)
                 """
                 
                 logger.info(f"Executando MERGE para {'importação completa' if is_importacao_completa else 'atualização parcial'}")
@@ -761,6 +791,8 @@ def listar_registros():
         versao = request.args.get('versao', '')
         operacao = request.args.get('operacao', '')
         filial = request.args.get('filial', '')
+        rateio = request.args.get('rateio', '')
+        origem = request.args.get('origem', '')
         
         # Verifica se o arquivo de credenciais existe
         if not BIGQUERY_CREDENTIALS_PATH.exists():
@@ -794,7 +826,9 @@ def listar_registros():
                 VERSAO,
                 OPERACAO,
                 DATA_ATUALIZACAO,
-                FILIAL
+                FILIAL,
+                RATEIO,
+                ORIGEM
             FROM `{dataset_id}.{table_id}`
             WHERE 1=1
         """
@@ -814,6 +848,10 @@ def listar_registros():
             query += f" AND OPERACAO = '{operacao}'"
         if filial:
             query += f" AND CAST(FILIAL AS STRING) = '{filial}'"
+        if rateio:
+            query += f" AND RATEIO = '{rateio}'"
+        if origem:
+            query += f" AND ORIGEM LIKE '%{origem}%'"
         
         # Query para contar o total de registros
         count_query = f"""
@@ -837,6 +875,10 @@ def listar_registros():
             count_query += f" AND OPERACAO = '{operacao}'"
         if filial:
             count_query += f" AND CAST(FILIAL AS STRING) = '{filial}'"
+        if rateio:
+            count_query += f" AND RATEIO = '{rateio}'"
+        if origem:
+            count_query += f" AND ORIGEM LIKE '%{origem}%'"
         
         # Executa a query de contagem
         count_job = client.query(count_query)
@@ -867,7 +909,9 @@ def listar_registros():
             'data_fim': data_fim,
             'versao': versao,
             'operacao': operacao,
-            'filial': filial
+            'filial': filial,
+            'rateio': rateio,
+            'origem': origem
         }
         
         return render_template('registros.html', 
@@ -1023,7 +1067,18 @@ def deletar_registro():
         # Obtém os dados do formulário
         n_conta = request.form.get('N_CONTA')
         n_centro_custo = request.form.get('N_CENTRO_CUSTO')
-        data = datetime.strptime(request.form.get('DATA'), '%d/%m/%Y').date()
+        data_str = request.form.get('DATA')
+        # Tenta primeiro o formato ISO (YYYY-MM-DD) do BigQuery
+        try:
+            data = datetime.strptime(data_str, '%Y-%m-%d').date()
+        except ValueError:
+            # Se falhar, tenta o formato brasileiro (DD/MM/YYYY)
+            try:
+                data = datetime.strptime(data_str, '%d/%m/%Y').date()
+            except ValueError:
+                logger.error(f"Formato de data inválido: {data_str}")
+                flash("Formato de data inválido", "error")
+                return redirect(url_for('listar_registros'))
         versao = request.form.get('VERSAO')
         
         logger.info(f"Iniciando deleção de registro: N_CONTA={n_conta}, N_CENTRO_CUSTO={n_centro_custo}, DATA={data}, VERSAO={versao}")
@@ -1289,6 +1344,8 @@ def exportar_excel():
         versao = request.args.get('versao', '')
         operacao = request.args.get('operacao', '')
         filial = request.args.get('filial', '')
+        rateio = request.args.get('rateio', '')
+        origem = request.args.get('origem', '')
         
         # Verifica se o arquivo de credenciais existe
         if not BIGQUERY_CREDENTIALS_PATH.exists():
@@ -1322,7 +1379,9 @@ def exportar_excel():
                 VERSAO,
                 OPERACAO,
                 DATA_ATUALIZACAO,
-                FILIAL
+                FILIAL,
+                RATEIO,
+                ORIGEM
             FROM `{BIGQUERY_CONFIG.get('project_id')}.{dataset_id}.{table_id}`
             WHERE 1=1
         """
@@ -1342,6 +1401,10 @@ def exportar_excel():
             query += f" AND OPERACAO = '{operacao}'"
         if filial:
             query += f" AND CAST(FILIAL AS STRING) = '{filial}'"
+        if rateio:
+            query += f" AND RATEIO = '{rateio}'"
+        if origem:
+            query += f" AND ORIGEM LIKE '%{origem}%'"
         
         # Adiciona ordenação
         query += " ORDER BY DATA_ATUALIZACAO DESC"
@@ -1368,7 +1431,9 @@ def exportar_excel():
             'VERSAO': 'Versão',
             'OPERACAO': 'Operação',
             'DATA_ATUALIZACAO': 'Data de Atualização',
-            'FILIAL': 'Filial'
+            'FILIAL': 'Filial',
+            'RATEIO': 'Rateio',
+            'ORIGEM': 'Origem'
         })
         
         # Cria o arquivo Excel
@@ -1412,9 +1477,11 @@ def deletar_por_filtros():
         versao = request.form.get('versao', '')
         filial = request.form.get('filial', '')
         operacao = request.form.get('operacao', '')
+        rateio = request.form.get('rateio', '')
+        origem = request.form.get('origem', '')
         
         # Verifica se pelo menos um filtro foi aplicado
-        if not any([n_conta, n_centro_custo, data_inicio, data_fim, versao, filial, operacao]):
+        if not any([n_conta, n_centro_custo, data_inicio, data_fim, versao, filial, operacao, rateio, origem]):
             flash("É necessário aplicar pelo menos um filtro para deletar registros", "error")
             return redirect(url_for('listar_registros'))
         
@@ -1461,6 +1528,10 @@ def deletar_por_filtros():
             count_query += f" AND CAST(FILIAL AS STRING) = '{filial}'"
         if operacao:
             count_query += f" AND OPERACAO = '{operacao}'"
+        if rateio:
+            count_query += f" AND RATEIO = '{rateio}'"
+        if origem:
+            count_query += f" AND ORIGEM LIKE '%{origem}%'"
         
         # Executa a query de contagem
         count_job = client.query(count_query)
@@ -1491,6 +1562,10 @@ def deletar_por_filtros():
             delete_query += f" AND CAST(FILIAL AS STRING) = '{filial}'"
         if operacao:
             delete_query += f" AND OPERACAO = '{operacao}'"
+        if rateio:
+            delete_query += f" AND RATEIO = '{rateio}'"
+        if origem:
+            delete_query += f" AND ORIGEM LIKE '%{origem}%'"
         
         # Executa a query de deleção
         delete_job = client.query(delete_query)
@@ -1505,7 +1580,7 @@ def deletar_por_filtros():
             "ARQUIVO_ORIGEM": f"DELETADO: Filtros aplicados",
             "TOTAL_REGISTROS": total_registros,
             "STATUS": "DELETADO",
-            "DETALHES": f"Registros deletados com filtros: Filial={filial}, Conta={n_conta}, Centro Custo={n_centro_custo}, Data Início={data_inicio}, Data Fim={data_fim}, Versão={versao}, Operação={operacao}"
+            "DETALHES": f"Registros deletados com filtros: Filial={filial}, Conta={n_conta}, Centro Custo={n_centro_custo}, Data Início={data_inicio}, Data Fim={data_fim}, Versão={versao}, Operação={operacao}, Rateio={rateio}, Origem={origem}"
         }
         
         # Cria o DataFrame com tipos explícitos
@@ -1554,4 +1629,4 @@ def deletar_por_filtros():
     return redirect(url_for('listar_registros'))
 
 if __name__ == "__main__":
-    main() 
+    app.run(debug=True) 

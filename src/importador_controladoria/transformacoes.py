@@ -118,6 +118,60 @@ def validar_operacao(operacao: str) -> Tuple[bool, str]:
     
     return True, operacao
 
+
+def validar_rateio(rateio: str) -> Tuple[bool, str]:
+    """
+    Valida e transforma o campo rateio.
+    
+    Args:
+        rateio: String com o rateio a ser validado
+        
+    Returns:
+        Tuple contendo:
+        - bool: True se o rateio é válido, False caso contrário
+        - str: Rateio transformado ou mensagem de erro
+    """
+    if pd.isna(rateio) or rateio == '':
+        return True, ''
+    
+    # Remove espaços extras e converte para maiúsculo
+    rateio = ' '.join(str(rateio).split()).upper()
+    
+    # Verifica se é SIM ou NÃO
+    if rateio not in ['SIM', 'NAO', 'NÃO']:
+        return False, "Rateio deve ser 'SIM' ou 'NÃO'"
+    
+    # Normaliza NÃO para NAO (sem acento)
+    if rateio == 'NÃO':
+        rateio = 'NAO'
+    
+    return True, rateio
+
+
+def validar_origem(origem: str) -> Tuple[bool, str]:
+    """
+    Valida e transforma o campo origem.
+    
+    Args:
+        origem: String com a origem a ser validada
+        
+    Returns:
+        Tuple contendo:
+        - bool: True se a origem é válida, False caso contrário
+        - str: Origem transformada ou mensagem de erro
+    """
+    if pd.isna(origem) or origem == '':
+        return True, ''
+    
+    # Remove espaços extras e converte para maiúsculo
+    origem = limpar_texto(str(origem))
+    
+    # Verifica o tamanho máximo
+    if len(origem) > 60:
+        return False, "Origem não pode ter mais de 60 caracteres"
+    
+    return True, origem
+
 def validar_valor(valor: float) -> Tuple[bool, float]:
     """
     Valida e transforma o valor.
@@ -260,6 +314,10 @@ def transformar_dados(df: pd.DataFrame) -> Tuple[pd.DataFrame, list]:
         df_transformado['VERSAO'] = df_transformado['VERSAO'].astype(str)
     if 'TIPO' in df_transformado.columns:
         df_transformado['TIPO'] = df_transformado['TIPO'].astype(str)
+    if 'RATEIO' in df_transformado.columns:
+        df_transformado['RATEIO'] = df_transformado['RATEIO'].astype(str)
+    if 'ORIGEM' in df_transformado.columns:
+        df_transformado['ORIGEM'] = df_transformado['ORIGEM'].astype(str)
     
     # Aplica as transformações
     for idx, row in df_transformado.iterrows():
@@ -299,5 +357,19 @@ def transformar_dados(df: pd.DataFrame) -> Tuple[pd.DataFrame, list]:
             if not operacao_valida:
                 erros.append(f"Linha {idx + 2}: {operacao_transformada}")
             df_transformado.at[idx, 'OPERACAO'] = operacao_transformada
+        
+        # Valida e transforma o rateio
+        if 'RATEIO' in df_transformado.columns:
+            rateio_valido, rateio_transformado = validar_rateio(row['RATEIO'])
+            if not rateio_valido:
+                erros.append(f"Linha {idx + 2}: {rateio_transformado}")
+            df_transformado.at[idx, 'RATEIO'] = rateio_transformado
+        
+        # Valida e transforma a origem
+        if 'ORIGEM' in df_transformado.columns:
+            origem_valida, origem_transformada = validar_origem(row['ORIGEM'])
+            if not origem_valida:
+                erros.append(f"Linha {idx + 2}: {origem_transformada}")
+            df_transformado.at[idx, 'ORIGEM'] = origem_transformada
     
     return df_transformado, erros 

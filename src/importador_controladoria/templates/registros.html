@@ -66,12 +66,24 @@
                     <label for="operacao" class="form-label">Operação</label>
                     <input type="text" class="form-control" id="operacao" name="operacao" value="{{ filtros.operacao }}">
                 </div>
+                <div class="col-md-2">
+                    <label for="rateio" class="form-label">Rateio</label>
+                    <select class="form-select" id="rateio" name="rateio">
+                        <option value="">Todos</option>
+                        <option value="SIM" {% if filtros.rateio == 'SIM' %}selected{% endif %}>SIM</option>
+                        <option value="NAO" {% if filtros.rateio == 'NAO' %}selected{% endif %}>NÃO</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="origem" class="form-label">Origem</label>
+                    <input type="text" class="form-control" id="origem" name="origem" value="{{ filtros.origem }}" maxlength="60">
+                </div>
                 <div class="col-md-2 d-flex align-items-end gap-2">
                     <button type="submit" class="btn btn-primary flex-grow-1">Filtrar</button>
                     <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deletarFiltrosModal">
                         <i class="fas fa-trash"></i>
                     </button>
-                    <a href="{{ url_for('exportar_excel', n_conta=filtros.n_conta, n_centro_custo=filtros.n_centro_custo, data_inicio=filtros.data_inicio, data_fim=filtros.data_fim, versao=filtros.versao, filial=filtros.filial) }}" class="btn btn-success">
+                    <a href="{{ url_for('exportar_excel', n_conta=filtros.n_conta, n_centro_custo=filtros.n_centro_custo, data_inicio=filtros.data_inicio, data_fim=filtros.data_fim, versao=filtros.versao, filial=filtros.filial, operacao=filtros.operacao, rateio=filtros.rateio, origem=filtros.origem) }}" class="btn btn-success">
                         <i class="fas fa-file-excel"></i>
                     </a>
                     <a href="{{ url_for('listar_registros') }}" class="btn btn-secondary" title="Limpar filtros">
@@ -118,6 +130,8 @@
                     <th>Data</th>
                     <th>Versão</th>
                     <th>Operação</th>
+                    <th>Rateio</th>
+                    <th>Origem</th>
                     <th>Última Atualização</th>
                     <th>Ações</th>
                 </tr>
@@ -134,7 +148,9 @@
                     <td>R$ {{ "%.2f"|format(registro.VALOR) }}</td>
                     <td>{{ registro.DATA }}</td>
                     <td>{{ registro.VERSAO }}</td>
-                    <td>{{ registro.OPERACAO }}</td>
+                    <td>{{ registro.OPERACAO if registro.OPERACAO and registro.OPERACAO != 'nan' else '' }}</td>
+                    <td>{{ registro.RATEIO if registro.RATEIO and registro.RATEIO != 'nan' else '' }}</td>
+                    <td>{{ registro.ORIGEM if registro.ORIGEM and registro.ORIGEM != 'nan' else '' }}</td>
                     <td>{{ registro.DATA_ATUALIZACAO }}</td>
                     <td>
                         <button type="button" class="btn btn-primary btn-sm" onclick="editarRegistro('{{ registro.N_CONTA }}', '{{ registro.N_CENTRO_CUSTO }}', '{{ registro.DATA }}', '{{ registro.VERSAO }}', '{{ registro.DESCRICAO }}', {{ registro.VALOR }})">
@@ -197,7 +213,7 @@
                 <p>Tem certeza que deseja deletar este registro? Esta ação não pode ser desfeita.</p>
             </div>
             <div class="modal-footer">
-                <form action="{{ url_for('deletar_registro') }}" method="POST">
+                <form action="/registros/deletar" method="POST">
                     <input type="hidden" name="N_CONTA" id="delete_N_CONTA">
                     <input type="hidden" name="N_CENTRO_CUSTO" id="delete_N_CENTRO_CUSTO">
                     <input type="hidden" name="DATA" id="delete_DATA">
@@ -275,6 +291,12 @@
                     {% if filtros.operacao %}
                     <li class="list-group-item">Operação: {{ filtros.operacao }}</li>
                     {% endif %}
+                    {% if filtros.rateio %}
+                    <li class="list-group-item">Rateio: {{ filtros.rateio }}</li>
+                    {% endif %}
+                    {% if filtros.origem %}
+                    <li class="list-group-item">Origem: {{ filtros.origem }}</li>
+                    {% endif %}
                 </ul>
                 
                 <div class="alert alert-warning">
@@ -291,6 +313,8 @@
                     <input type="hidden" name="data_fim" value="{{ filtros.data_fim }}">
                     <input type="hidden" name="versao" value="{{ filtros.versao }}">
                     <input type="hidden" name="operacao" value="{{ filtros.operacao }}">
+                    <input type="hidden" name="rateio" value="{{ filtros.rateio }}">
+                    <input type="hidden" name="origem" value="{{ filtros.origem }}">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-danger">
                         <i class="fas fa-trash"></i> Confirmar Deleção

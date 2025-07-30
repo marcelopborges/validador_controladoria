@@ -41,6 +41,8 @@ Este documento descreve todas as regras de validação e transformação aplicad
 
 ## Campos Opcionais
 - OPERACAO (máximo 10 caracteres)
+- RATEIO (somente SIM ou NÃO)
+- ORIGEM (máximo 60 caracteres)
 
 ## Validações por Campo
 
@@ -73,6 +75,18 @@ Este documento descreve todas as regras de validação e transformação aplicad
 - **Obrigatório**: Não
 - **Tipo**: String (texto)
 - **Observação**: Campo aceita valores nulos
+
+### RATEIO
+- **Formato**: Somente as palavras "SIM" ou "NÃO"
+- **Obrigatório**: Não
+- **Tipo**: String (texto)
+- **Observação**: Campo aceita valores nulos. Valores são convertidos para maiúsculas e "NÃO" é normalizado para "NAO" (sem acento)
+
+### ORIGEM
+- **Formato**: Texto alfanumérico com no máximo 60 caracteres
+- **Obrigatório**: Não
+- **Tipo**: String (texto)
+- **Observação**: Campo aceita valores nulos. Texto é convertido para maiúsculas e acentos são removidos
 
 ### VALOR
 - **Formato**: Número decimal (float)
@@ -136,7 +150,18 @@ Este documento descreve todas as regras de validação e transformação aplicad
 - Deve ser uma string
 - Pode ser nula
 - Deve ter no máximo 10 caracteres
-- Se preenchida, deve conter apenas letras, números e caracteres especiais permitidos
+
+### RATEIO
+- Deve ser uma string
+- Pode ser nula
+- Deve conter apenas "SIM" ou "NÃO"
+- Valores são normalizados para maiúsculas
+
+### ORIGEM
+- Deve ser uma string
+- Pode ser nula
+- Deve ter no máximo 60 caracteres
+- Texto é convertido para maiúsculas sem acentos
 
 ## Exemplos de Valores Válidos
 
@@ -170,6 +195,16 @@ Este documento descreve todas as regras de validação e transformação aplicad
 - "DELETE"
 - "MERGE"
 
+### RATEIO
+- "SIM"
+- "NÃO"
+- "NAO"
+
+### ORIGEM
+- "SISTEMA FINANCEIRO"
+- "PLANILHA MANUAL"
+- "IMPORTACAO AUTOMATICA"
+
 ## Como Corrigir Erros Comuns
 
 1. **Filial inválida**: Certifique-se que a filial possui 4 dígitos e começa com "0"
@@ -180,6 +215,8 @@ Este documento descreve todas as regras de validação e transformação aplicad
 6. **Valor nulo ou inválido**: Adicione um valor numérico válido
 7. **Descrição vazia**: Adicione uma descrição
 8. **Versão em formato inválido**: Use o formato "YYYY - VX", onde YYYY é o ano com 4 dígitos e X é o número da versão
+9. **Rateio inválido**: Use apenas "SIM" ou "NÃO"
+10. **Origem muito longa**: Reduza para no máximo 60 caracteres
 
 ## Nomes de Colunas
 
