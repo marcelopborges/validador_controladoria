@@ -599,6 +599,32 @@ def get_resource_path(relative_path):
     
     return os.path.join(base_path, relative_path)
 
+def parse_data_flexivel(data_str):
+    """
+    Faz o parse de uma string de data em múltiplos formatos.
+    
+    Args:
+        data_str (str): String contendo a data
+        
+    Returns:
+        datetime.date: Objeto date com a data parseada
+        
+    Raises:
+        ValueError: Se nenhum formato for reconhecido
+    """
+    if not data_str:
+        raise ValueError("String de data não pode ser vazia")
+    
+    formatos_data = ['%Y-%m-%d', '%d/%m/%Y', '%Y/%m/%d', '%d-%m-%Y']
+    
+    for formato in formatos_data:
+        try:
+            return datetime.strptime(data_str, formato).date()
+        except ValueError:
+            continue
+    
+    raise ValueError(f"Formato de data inválido: {data_str}. Formatos aceitos: YYYY-MM-DD, DD/MM/YYYY, YYYY/MM/DD, DD-MM-YYYY")
+
 @app.route('/')
 def index():
     return render_template('index.html', now=datetime.now())
@@ -933,7 +959,11 @@ def editar_registro():
         # Obtém os dados do formulário
         n_conta = request.form.get('N_CONTA')
         n_centro_custo = request.form.get('N_CENTRO_CUSTO')
-        data = datetime.strptime(request.form.get('DATA'), '%d/%m/%Y').date()
+        
+        # Faz o parse da data usando a função utilitária
+        data_str = request.form.get('DATA')
+        data = parse_data_flexivel(data_str)
+        
         versao = request.form.get('VERSAO')
         descricao = request.form.get('DESCRICAO')
         valor = float(request.form.get('VALOR'))
@@ -1068,17 +1098,12 @@ def deletar_registro():
         n_conta = request.form.get('N_CONTA')
         n_centro_custo = request.form.get('N_CENTRO_CUSTO')
         data_str = request.form.get('DATA')
-        # Tenta primeiro o formato ISO (YYYY-MM-DD) do BigQuery
         try:
-            data = datetime.strptime(data_str, '%Y-%m-%d').date()
-        except ValueError:
-            # Se falhar, tenta o formato brasileiro (DD/MM/YYYY)
-            try:
-                data = datetime.strptime(data_str, '%d/%m/%Y').date()
-            except ValueError:
-                logger.error(f"Formato de data inválido: {data_str}")
-                flash("Formato de data inválido", "error")
-                return redirect(url_for('listar_registros'))
+            data = parse_data_flexivel(data_str)
+        except ValueError as e:
+            logger.error(f"Formato de data inválido: {data_str}")
+            flash(f"Formato de data inválido: {str(e)}", "error")
+            return redirect(url_for('listar_registros'))
         versao = request.form.get('VERSAO')
         
         logger.info(f"Iniciando deleção de registro: N_CONTA={n_conta}, N_CENTRO_CUSTO={n_centro_custo}, DATA={data}, VERSAO={versao}")
