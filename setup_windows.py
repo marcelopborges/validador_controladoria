@@ -110,10 +110,24 @@ def main():
         # Verifica se o Pillow está instalado
         try:
             import PIL
+            print(f"Pillow encontrado: versão {PIL.__version__}")
         except ImportError:
             print("Pillow não encontrado. Instalando...")
             os.system("pip install pillow")
             import PIL
+            print(f"Pillow instalado: versão {PIL.__version__}")
+        
+        # Verifica se o Pillow está no requirements.txt
+        try:
+            with open("requirements.txt", "r") as f:
+                requirements_content = f.read()
+                if "pillow" not in requirements_content.lower():
+                    print("⚠ Aviso: Pillow não encontrado no requirements.txt")
+                    print("Adicionando Pillow ao requirements.txt...")
+                    with open("requirements.txt", "a") as f:
+                        f.write("\npillow==11.2.1\n")
+        except Exception as e:
+            print(f"Erro ao verificar requirements.txt: {e}")
         
         # Converte o ícone PNG para ICO
         png_path = "icone.png"
@@ -146,32 +160,41 @@ def main():
         for dir_to_clean in ["build", "dist", f"{nome_app}.spec"]:
             limpar_diretorio(dir_to_clean)
         
-        # Comando para o PyInstaller
-        cmd = f"""
-        pyinstaller --name="{nome_app}" 
-                   --onefile 
-                   --windowed 
-                   --noconfirm 
-                   --clean 
-                   --add-data="src;src" 
-                   --add-data="REGRAS_VALIDACAO.md;." 
-                   --add-data="README.md;." 
-                   --add-data="data/modelo_importacao.xlsx;data" 
-                   --add-data="data/modelo_importacao.csv;data" 
-                   --add-data="config;config"
-                   --hidden-import="openpyxl"
-                   --hidden-import="xlrd"
-                   --hidden-import="pandas"
-                   --hidden-import="numpy"
-                   --hidden-import="flask"
-                   --hidden-import="werkzeug"
-                   --hidden-import="jinja2"
-                   --hidden-import="markdown"
-                   --hidden-import="google.cloud.bigquery"
-                   --hidden-import="google.oauth2.service_account"
-                   {f'--icon="{ico_path}"' if ico_path else ''}
-                   interface_grafica.py
-        """
+        # Comando para o PyInstaller usando o arquivo .spec personalizado
+        if os.path.exists("ImportadorControladoria.spec"):
+            print("Usando arquivo .spec personalizado...")
+            cmd = "pyinstaller ImportadorControladoria.spec --noconfirm --clean"
+        else:
+            print("Arquivo .spec não encontrado, usando comando padrão...")
+            cmd = f"""
+            pyinstaller --name="{nome_app}" 
+                       --onefile 
+                       --windowed 
+                       --noconfirm 
+                       --clean 
+                       --add-data="src;src" 
+                       --add-data="REGRAS_VALIDACAO.md;." 
+                       --add-data="README.md;." 
+                       --add-data="data/modelo_importacao.xlsx;data" 
+                       --add-data="data/modelo_importacao.csv;data" 
+                       --add-data="config;config"
+                       --hidden-import="openpyxl"
+                       --hidden-import="xlrd"
+                       --hidden-import="pandas"
+                       --hidden-import="numpy"
+                       --hidden-import="flask"
+                       --hidden-import="werkzeug"
+                       --hidden-import="jinja2"
+                       --hidden-import="markdown"
+                       --hidden-import="google.cloud.bigquery"
+                       --hidden-import="google.oauth2.service_account"
+                       --hidden-import="PIL"
+                       --hidden-import="PIL.Image"
+                       --hidden-import="PIL.ImageDraw"
+                       --hidden-import="PIL.ImageFont"
+                       {f'--icon="{ico_path}"' if ico_path else ''}
+                       interface_grafica.py
+            """
         
         # Remover quebras de linha para o sistema operacional
         cmd = " ".join(line.strip() for line in cmd.splitlines())
