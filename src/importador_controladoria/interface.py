@@ -22,9 +22,15 @@ import markdown
 import webbrowser
 from threading import Timer
 from io import BytesIO
+import logging.config
+from .config import LOG_CONFIG
 
 from .transformacoes import transformar_dados, validar_data
 from .config import BIGQUERY_CONFIG, GCP_STORAGE_CONFIG
+
+# Aplica a configuração de logging
+logging.config.dictConfig(LOG_CONFIG)
+logger = logging.getLogger(__name__)
 
 # Configuração do Flask
 app = Flask(__name__, 
@@ -33,10 +39,6 @@ app = Flask(__name__,
 app.secret_key = str(uuid.uuid4())
 app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
-
-# Configuração de logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Diretório para salvar os arquivos processados (usando caminho absoluto)
 def get_data_path():
@@ -197,8 +199,10 @@ class ProcessamentoThread(threading.Thread):
             else:
                 # Verifica o motivo específico do problema
                 motivo_bigquery = "Arquivo de credenciais não encontrado"
-                if BIGQUERY_CREDENTIALS_PATH.exists():
+                if credentials_path.exists():
                     motivo_bigquery = "Erro na configuração das credenciais"
+                    # Adiciona informações sobre o caminho para debug
+                    motivo_bigquery += f" (Caminho: {credentials_path})"
                 
                 mensagem_final = f"Processo concluído com sucesso! Arquivos salvos em {PROCESSED_DIR} (BigQuery: {motivo_bigquery})"
                 self.finalizar(True, mensagem_final, [])
@@ -253,9 +257,25 @@ class ProcessamentoThread(threading.Thread):
     def exportar_para_bigquery(self, df):
         """Exporta os dados para o BigQuery."""
         try:
+            # Logs específicos para debug do contexto
+            logger.info("=== INÍCIO EXPORTAÇÃO BIGQUERY ===")
+            logger.info(f"Thread atual: {threading.current_thread().name}")
+            logger.info(f"Thread ID: {threading.current_thread().ident}")
+            logger.info(f"Executável congelado: {getattr(sys, 'frozen', False)}")
+            logger.info(f"Executável: {sys.executable}")
+            logger.info(f"Diretório atual: {os.getcwd()}")
+            
+            # Detecta o caminho dinamicamente (em vez de usar a variável global)
+            config_path = get_config_path()
+            credentials_path = Path(config_path) / "bigquery-credentials.json"
+            
+            logger.info(f"get_config_path(): {config_path}")
+            logger.info(f"CREDENTIALS_DIR: {Path(config_path)}")
+            logger.info(f"BIGQUERY_CREDENTIALS_PATH (dinâmico): {credentials_path}")
+            
             # Verifica se o arquivo de credenciais existe
-            if not BIGQUERY_CREDENTIALS_PATH.exists():
-                logger.warning(f"Arquivo de credenciais do BigQuery não encontrado em: {BIGQUERY_CREDENTIALS_PATH}")
+            if not credentials_path.exists():
+                logger.warning(f"Arquivo de credenciais do BigQuery não encontrado em: {credentials_path}")
                 self.atualizar_etapa("upload", completed=True, message="BigQuery: Arquivo de credenciais não encontrado")
                 return True
                 
@@ -329,11 +349,17 @@ class ProcessamentoThread(threading.Thread):
             
             # Cria as credenciais a partir do arquivo JSON
             try:
-                logger.info(f"Tentando carregar credenciais de: {BIGQUERY_CREDENTIALS_PATH}")
+                logger.info(f"Tentando carregar credenciais de: {credentials_path}")
+                logger.info(f"Arquivo existe: {credentials_path.exists()}")
+                logger.info(f"Caminho absoluto: {credentials_path.absolute()}")
+                logger.info(f"Executável congelado: {getattr(sys, 'frozen', False)}")
+                logger.info(f"Executável: {sys.executable}")
+                logger.info(f"get_config_path(): {config_path}")
+                logger.info(f"CREDENTIALS_DIR: {Path(config_path)}")
                 
                 # Usa a mesma abordagem simples da rota /registros
                 credentials = service_account.Credentials.from_service_account_file(
-                    str(BIGQUERY_CREDENTIALS_PATH),
+                    str(credentials_path),
                     scopes=["https://www.googleapis.com/auth/cloud-platform"]
                 )
                 logger.info("Credenciais do BigQuery carregadas com sucesso")
@@ -343,7 +369,10 @@ class ProcessamentoThread(threading.Thread):
                 logger.error(f"Tipo do erro: {type(e).__name__}")
                 import traceback
                 logger.error(f"Stack trace completo: {traceback.format_exc()}")
-                self.atualizar_etapa("upload", error=True, message="BigQuery: Erro na configuração das credenciais")
+                
+                # Mensagem mais detalhada para a interface web
+                erro_detalhado = f"BigQuery: Erro na configuração das credenciais - {type(e).__name__}: {str(e)}"
+                self.atualizar_etapa("upload", error=True, message=erro_detalhado)
                 return False
             
             # Inicializa o cliente do BigQuery
@@ -798,6 +827,15 @@ def download_modelo():
             flash("Credenciais do GCP não encontradas", "error")
             return redirect(url_for('index'))
             
+        # Logs de debug para comparação
+        logger.info(f"[REGISTROS] Caminho credenciais: {BIGQUERY_CREDENTIALS_PATH}")
+        logger.info(f"[REGISTROS] Arquivo existe: {BIGQUERY_CREDENTIALS_PATH.exists()}")
+        logger.info(f"[REGISTROS] Caminho absoluto: {BIGQUERY_CREDENTIALS_PATH.absolute()}")
+        logger.info(f"[REGISTROS] Executável congelado: {getattr(sys, 'frozen', False)}")
+        logger.info(f"[REGISTROS] Executável: {sys.executable}")
+        logger.info(f"[REGISTROS] get_config_path(): {get_config_path()}")
+        logger.info(f"[REGISTROS] CREDENTIALS_DIR: {CREDENTIALS_DIR}")
+            
         # Cria as credenciais a partir do arquivo JSON
         credentials = service_account.Credentials.from_service_account_file(
             BIGQUERY_CREDENTIALS_PATH,
@@ -839,6 +877,14 @@ def download_modelo():
 def listar_registros():
     """Lista os registros da tabela ORCADO."""
     try:
+        # Logs específicos para debug do contexto
+        logger.info("=== INÍCIO VISUALIZAÇÃO REGISTROS ===")
+        logger.info(f"Thread atual: {threading.current_thread().name}")
+        logger.info(f"Thread ID: {threading.current_thread().ident}")
+        logger.info(f"Executável congelado: {getattr(sys, 'frozen', False)}")
+        logger.info(f"Executável: {sys.executable}")
+        logger.info(f"Diretório atual: {os.getcwd()}")
+        
         # Obtém os filtros da query string
         n_conta = request.args.get('n_conta', '')
         n_centro_custo = request.args.get('n_centro_custo', '')
@@ -854,6 +900,15 @@ def listar_registros():
         if not BIGQUERY_CREDENTIALS_PATH.exists():
             flash("Credenciais do BigQuery não encontradas", "error")
             return redirect(url_for('index'))
+            
+        # Logs de debug para comparação
+        logger.info(f"[REGISTROS] Caminho credenciais: {BIGQUERY_CREDENTIALS_PATH}")
+        logger.info(f"[REGISTROS] Arquivo existe: {BIGQUERY_CREDENTIALS_PATH.exists()}")
+        logger.info(f"[REGISTROS] Caminho absoluto: {BIGQUERY_CREDENTIALS_PATH.absolute()}")
+        logger.info(f"[REGISTROS] Executável congelado: {getattr(sys, 'frozen', False)}")
+        logger.info(f"[REGISTROS] Executável: {sys.executable}")
+        logger.info(f"[REGISTROS] get_config_path(): {get_config_path()}")
+        logger.info(f"[REGISTROS] CREDENTIALS_DIR: {CREDENTIALS_DIR}")
             
         # Cria as credenciais a partir do arquivo JSON
         credentials = service_account.Credentials.from_service_account_file(
@@ -1003,6 +1058,15 @@ def editar_registro():
             flash("Credenciais do BigQuery não encontradas", "error")
             return redirect(url_for('listar_registros'))
             
+        # Logs de debug para comparação
+        logger.info(f"[EDITAR] Caminho credenciais: {BIGQUERY_CREDENTIALS_PATH}")
+        logger.info(f"[EDITAR] Arquivo existe: {BIGQUERY_CREDENTIALS_PATH.exists()}")
+        logger.info(f"[EDITAR] Caminho absoluto: {BIGQUERY_CREDENTIALS_PATH.absolute()}")
+        logger.info(f"[EDITAR] Executável congelado: {getattr(sys, 'frozen', False)}")
+        logger.info(f"[EDITAR] Executável: {sys.executable}")
+        logger.info(f"[EDITAR] get_config_path(): {get_config_path()}")
+        logger.info(f"[EDITAR] CREDENTIALS_DIR: {CREDENTIALS_DIR}")
+            
         # Cria as credenciais a partir do arquivo JSON
         credentials = service_account.Credentials.from_service_account_file(
             BIGQUERY_CREDENTIALS_PATH,
@@ -1144,6 +1208,15 @@ def deletar_registro():
             flash("Credenciais do BigQuery não encontradas", "error")
             return redirect(url_for('listar_registros'))
             
+        # Logs de debug para comparação
+        logger.info(f"[DELETAR] Caminho credenciais: {BIGQUERY_CREDENTIALS_PATH}")
+        logger.info(f"[DELETAR] Arquivo existe: {BIGQUERY_CREDENTIALS_PATH.exists()}")
+        logger.info(f"[DELETAR] Caminho absoluto: {BIGQUERY_CREDENTIALS_PATH.absolute()}")
+        logger.info(f"[DELETAR] Executável congelado: {getattr(sys, 'frozen', False)}")
+        logger.info(f"[DELETAR] Executável: {sys.executable}")
+        logger.info(f"[DELETAR] get_config_path(): {get_config_path()}")
+        logger.info(f"[DELETAR] CREDENTIALS_DIR: {CREDENTIALS_DIR}")
+            
         # Cria as credenciais a partir do arquivo JSON
         credentials = service_account.Credentials.from_service_account_file(
             BIGQUERY_CREDENTIALS_PATH,
@@ -1254,6 +1327,15 @@ def deletar_por_versao():
             flash("Credenciais do BigQuery não encontradas", "error")
             return redirect(url_for('listar_registros'))
             
+        # Logs de debug para comparação
+        logger.info(f"[DELETAR_VERSAO] Caminho credenciais: {BIGQUERY_CREDENTIALS_PATH}")
+        logger.info(f"[DELETAR_VERSAO] Arquivo existe: {BIGQUERY_CREDENTIALS_PATH.exists()}")
+        logger.info(f"[DELETAR_VERSAO] Caminho absoluto: {BIGQUERY_CREDENTIALS_PATH.absolute()}")
+        logger.info(f"[DELETAR_VERSAO] Executável congelado: {getattr(sys, 'frozen', False)}")
+        logger.info(f"[DELETAR_VERSAO] Executável: {sys.executable}")
+        logger.info(f"[DELETAR_VERSAO] get_config_path(): {get_config_path()}")
+        logger.info(f"[DELETAR_VERSAO] CREDENTIALS_DIR: {CREDENTIALS_DIR}")
+            
         # Cria as credenciais a partir do arquivo JSON
         credentials = service_account.Credentials.from_service_account_file(
             BIGQUERY_CREDENTIALS_PATH,
@@ -1302,6 +1384,15 @@ def deletar_por_filial():
         if not BIGQUERY_CREDENTIALS_PATH.exists():
             flash("Credenciais do BigQuery não encontradas", "error")
             return redirect(url_for('listar_registros'))
+            
+        # Logs de debug para comparação
+        logger.info(f"[DELETAR_FILIAL] Caminho credenciais: {BIGQUERY_CREDENTIALS_PATH}")
+        logger.info(f"[DELETAR_FILIAL] Arquivo existe: {BIGQUERY_CREDENTIALS_PATH.exists()}")
+        logger.info(f"[DELETAR_FILIAL] Caminho absoluto: {BIGQUERY_CREDENTIALS_PATH.absolute()}")
+        logger.info(f"[DELETAR_FILIAL] Executável congelado: {getattr(sys, 'frozen', False)}")
+        logger.info(f"[DELETAR_FILIAL] Executável: {sys.executable}")
+        logger.info(f"[DELETAR_FILIAL] get_config_path(): {get_config_path()}")
+        logger.info(f"[DELETAR_FILIAL] CREDENTIALS_DIR: {CREDENTIALS_DIR}")
             
         # Cria as credenciais a partir do arquivo JSON
         credentials = service_account.Credentials.from_service_account_file(
@@ -1406,6 +1497,15 @@ def exportar_excel():
         if not BIGQUERY_CREDENTIALS_PATH.exists():
             flash("Credenciais do BigQuery não encontradas", "error")
             return redirect(url_for('listar_registros'))
+            
+        # Logs de debug para comparação
+        logger.info(f"[EXPORTAR_EXCEL] Caminho credenciais: {BIGQUERY_CREDENTIALS_PATH}")
+        logger.info(f"[EXPORTAR_EXCEL] Arquivo existe: {BIGQUERY_CREDENTIALS_PATH.exists()}")
+        logger.info(f"[EXPORTAR_EXCEL] Caminho absoluto: {BIGQUERY_CREDENTIALS_PATH.absolute()}")
+        logger.info(f"[EXPORTAR_EXCEL] Executável congelado: {getattr(sys, 'frozen', False)}")
+        logger.info(f"[EXPORTAR_EXCEL] Executável: {sys.executable}")
+        logger.info(f"[EXPORTAR_EXCEL] get_config_path(): {get_config_path()}")
+        logger.info(f"[EXPORTAR_EXCEL] CREDENTIALS_DIR: {CREDENTIALS_DIR}")
             
         # Cria as credenciais a partir do arquivo JSON
         credentials = service_account.Credentials.from_service_account_file(
@@ -1545,6 +1645,15 @@ def deletar_por_filtros():
             flash("Credenciais do BigQuery não encontradas", "error")
             return redirect(url_for('listar_registros'))
             
+        # Logs de debug para comparação
+        logger.info(f"[DELETAR_FILTROS] Caminho credenciais: {BIGQUERY_CREDENTIALS_PATH}")
+        logger.info(f"[DELETAR_FILTROS] Arquivo existe: {BIGQUERY_CREDENTIALS_PATH.exists()}")
+        logger.info(f"[DELETAR_FILTROS] Caminho absoluto: {BIGQUERY_CREDENTIALS_PATH.absolute()}")
+        logger.info(f"[DELETAR_FILTROS] Executável congelado: {getattr(sys, 'frozen', False)}")
+        logger.info(f"[DELETAR_FILTROS] Executável: {sys.executable}")
+        logger.info(f"[DELETAR_FILTROS] get_config_path(): {get_config_path()}")
+        logger.info(f"[DELETAR_FILTROS] CREDENTIALS_DIR: {CREDENTIALS_DIR}")
+            
         # Cria as credenciais a partir do arquivo JSON
         credentials = service_account.Credentials.from_service_account_file(
             BIGQUERY_CREDENTIALS_PATH,
@@ -1682,6 +1791,49 @@ def deletar_por_filtros():
         flash(f"Erro ao deletar registros: {str(e)}", "error")
         
     return redirect(url_for('listar_registros'))
+
+@app.route('/diagnostico_bigquery')
+def diagnostico_bigquery():
+    """Página de diagnóstico do BigQuery."""
+    try:
+        # Informações de diagnóstico
+        diagnostico = {
+            "arquivo_existe": BIGQUERY_CREDENTIALS_PATH.exists(),
+            "caminho_arquivo": str(BIGQUERY_CREDENTIALS_PATH),
+            "executavel_congelado": getattr(sys, 'frozen', False),
+            "executavel": sys.executable,
+            "config_path": get_config_path(),
+            "data_path": get_data_path()
+        }
+        
+        # Tenta carregar as credenciais
+        if BIGQUERY_CREDENTIALS_PATH.exists():
+            try:
+                with open(BIGQUERY_CREDENTIALS_PATH, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    diagnostico["tamanho_arquivo"] = len(content)
+                    diagnostico["arquivo_valido"] = True
+                    
+                    # Verifica campos obrigatórios
+                    import json
+                    cred_dict = json.loads(content)
+                    required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email']
+                    missing_fields = [field for field in required_fields if field not in cred_dict]
+                    diagnostico["campos_faltando"] = missing_fields
+                    diagnostico["campos_presentes"] = list(cred_dict.keys())
+                    
+            except Exception as e:
+                diagnostico["arquivo_valido"] = False
+                diagnostico["erro_leitura"] = str(e)
+        else:
+            diagnostico["arquivo_valido"] = False
+            diagnostico["erro_leitura"] = "Arquivo não encontrado"
+        
+        return render_template('diagnostico_bigquery.html', diagnostico=diagnostico, now=datetime.now())
+    except Exception as e:
+        return render_template('diagnostico_bigquery.html', 
+                             diagnostico={"erro_geral": str(e)}, 
+                             now=datetime.now())
 
 if __name__ == "__main__":
     app.run(debug=True) 

@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+
+{% block title %}Diagnóstico BigQuery{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-search me-2"></i>
+                        Diagnóstico BigQuery
+                    </h5>
+                    <div>
+                        <a href="{{ url_for('index') }}" class="btn btn-secondary btn-sm">
+                            <i class="fas fa-arrow-left me-1"></i>Voltar
+                        </a>
+                        <button onclick="location.reload()" class="btn btn-primary btn-sm">
+                            <i class="fas fa-sync-alt me-1"></i>Atualizar
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if diagnostico.erro_geral %}
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <strong>Erro Geral:</strong> {{ diagnostico.erro_geral }}
+                        </div>
+                    {% else %}
+                        <!-- Informações Gerais -->
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <h6><i class="fas fa-info-circle me-2"></i>Informações Gerais</h6>
+                                <ul class="list-group list-group-flush">
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>Executável Congelado:</span>
+                                        <span class="badge {% if diagnostico.executavel_congelado %}bg-success{% else %}bg-warning{% endif %}">
+                                            {{ "Sim" if diagnostico.executavel_congelado else "Não" }}
+                                        </span>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>Executável:</span>
+                                        <small class="text-muted">{{ diagnostico.executavel }}</small>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>Caminho Config:</span>
+                                        <small class="text-muted">{{ diagnostico.config_path }}</small>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>Caminho Data:</span>
+                                        <small class="text-muted">{{ diagnostico.data_path }}</small>
+                                    </li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6><i class="fas fa-file-alt me-2"></i>Arquivo de Credenciais</h6>
+                                <ul class="list-group list-group-flush">
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>Arquivo Existe:</span>
+                                        <span class="badge {% if diagnostico.arquivo_existe %}bg-success{% else %}bg-danger{% endif %}">
+                                            {{ "Sim" if diagnostico.arquivo_existe else "Não" }}
+                                        </span>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>Arquivo Válido:</span>
+                                        <span class="badge {% if diagnostico.arquivo_valido %}bg-success{% else %}bg-danger{% endif %}">
+                                            {{ "Sim" if diagnostico.arquivo_valido else "Não" }}
+                                        </span>
+                                    </li>
+                                    {% if diagnostico.arquivo_existe %}
+                                        <li class="list-group-item d-flex justify-content-between">
+                                            <span>Tamanho:</span>
+                                            <small class="text-muted">{{ diagnostico.tamanho_arquivo }} bytes</small>
+                                        </li>
+                                    {% endif %}
+                                    <li class="list-group-item">
+                                        <span>Caminho:</span>
+                                        <br><small class="text-muted">{{ diagnostico.caminho_arquivo }}</small>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Status do Arquivo -->
+                        {% if diagnostico.arquivo_existe %}
+                            {% if diagnostico.arquivo_valido %}
+                                <div class="alert alert-success">
+                                    <i class="fas fa-check-circle me-2"></i>
+                                    <strong>Arquivo de credenciais encontrado e válido!</strong>
+                                </div>
+                                
+                                <!-- Campos Presentes -->
+                                <div class="row mb-4">
+                                    <div class="col-md-6">
+                                        <h6><i class="fas fa-list me-2"></i>Campos Presentes</h6>
+                                        <div class="list-group">
+                                            {% for campo in diagnostico.campos_presentes %}
+                                                <div class="list-group-item list-group-item-success">
+                                                    <i class="fas fa-check me-2"></i>{{ campo }}
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6><i class="fas fa-exclamation-triangle me-2"></i>Campos Faltando</h6>
+                                        {% if diagnostico.campos_faltando %}
+                                            <div class="list-group">
+                                                {% for campo in diagnostico.campos_faltando %}
+                                                    <div class="list-group-item list-group-item-danger">
+                                                        <i class="fas fa-times me-2"></i>{{ campo }}
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        {% else %}
+                                            <div class="alert alert-success">
+                                                <i class="fas fa-check-circle me-2"></i>
+                                                Todos os campos obrigatórios estão presentes!
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% else %}
+                                <div class="alert alert-danger">
+                                    <i class="fas fa-exclamation-triangle me-2"></i>
+                                    <strong>Erro ao ler arquivo:</strong> {{ diagnostico.erro_leitura }}
+                                </div>
+                            {% endif %}
+                        {% else %}
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Arquivo de credenciais não encontrado!</strong>
+                                <br><br>
+                                <strong>Para resolver:</strong>
+                                <ol>
+                                    <li>Copie o arquivo <code>config/bigquery-credentials.example.json</code> para <code>config/bigquery-credentials.json</code></li>
+                                    <li>Edite o arquivo com suas credenciais reais do Google Cloud</li>
+                                    <li>Reinicie a aplicação</li>
+                                </ol>
+                            </div>
+                        {% endif %}
+
+                        <!-- Recomendações -->
+                        <div class="card mt-4">
+                            <div class="card-header">
+                                <h6 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Recomendações</h6>
+                            </div>
+                            <div class="card-body">
+                                {% if not diagnostico.arquivo_existe %}
+                                    <div class="alert alert-info">
+                                        <strong>1. Configure as credenciais:</strong> O arquivo de credenciais não foi encontrado.
+                                    </div>
+                                {% elif not diagnostico.arquivo_valido %}
+                                    <div class="alert alert-info">
+                                        <strong>2. Verifique o formato:</strong> O arquivo existe mas não está no formato correto.
+                                    </div>
+                                {% elif diagnostico.campos_faltando %}
+                                    <div class="alert alert-info">
+                                        <strong>3. Complete os campos:</strong> Alguns campos obrigatórios estão faltando.
+                                    </div>
+                                {% else %}
+                                    <div class="alert alert-success">
+                                        <strong>✓ Configuração OK:</strong> O arquivo de credenciais está correto. Se ainda houver problemas, verifique a conectividade de rede.
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 
