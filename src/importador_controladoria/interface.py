@@ -56,9 +56,26 @@ def get_data_path():
         # Fallback para o caminho de desenvolvimento
         return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data"))
 
+def get_config_path():
+    """
+    Obtém o caminho para a pasta config, funcionando tanto em desenvolvimento quanto em produção.
+    """
+    try:
+        # Verifica se está rodando como executável
+        if getattr(sys, 'frozen', False):
+            # Se estiver rodando como executável, a pasta config está no mesmo diretório do executável
+            return os.path.join(os.path.dirname(sys.executable), "config")
+        else:
+            # Se estiver em desenvolvimento, volta 3 níveis para encontrar a pasta config
+            return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "config"))
+    except Exception as e:
+        logger.error(f"Erro ao determinar caminho da pasta config: {str(e)}")
+        # Fallback para o caminho de desenvolvimento
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "config"))
+
 PROCESSED_DIR = Path(get_data_path()) / "processados"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-CREDENTIALS_DIR = Path(__file__).parent.parent.parent / "config"
+CREDENTIALS_DIR = Path(get_config_path())
 
 # Caminho para o arquivo de credenciais do BigQuery
 BIGQUERY_CREDENTIALS_PATH = CREDENTIALS_DIR / "bigquery-credentials.json"

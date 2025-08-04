@@ -3,11 +3,29 @@ Configurações do importador de dados.
 """
 
 import os
+import sys
 from pathlib import Path
 import json
 
+def get_base_path():
+    """
+    Obtém o caminho base do projeto, funcionando tanto em desenvolvimento quanto em produção.
+    """
+    try:
+        # Verifica se está rodando como executável
+        if getattr(sys, 'frozen', False):
+            # Se estiver rodando como executável, o caminho base é o diretório do executável
+            return Path(os.path.dirname(sys.executable))
+        else:
+            # Se estiver em desenvolvimento, volta 3 níveis para encontrar o diretório raiz
+            return Path(__file__).parent.parent.parent
+    except Exception as e:
+        print(f"Erro ao determinar caminho base: {e}")
+        # Fallback para o caminho de desenvolvimento
+        return Path(__file__).parent.parent.parent
+
 # Diretórios base
-BASE_DIR = Path(__file__).parent.parent.parent
+BASE_DIR = get_base_path()
 DATA_DIR = BASE_DIR / "data"
 LOG_DIR = BASE_DIR / "logs"
 CONFIG_DIR = BASE_DIR / "config"
