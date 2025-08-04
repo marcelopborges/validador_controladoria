@@ -195,7 +195,13 @@ class ProcessamentoThread(threading.Thread):
             if exportou_bigquery:
                 self.finalizar(True, f"Processo concluído com sucesso! Arquivos salvos em {PROCESSED_DIR} e enviados para o BigQuery", [])
             else:
-                self.finalizar(True, f"Processo concluído com sucesso! Arquivos salvos em {PROCESSED_DIR} (BigQuery não configurado)", [])
+                # Verifica o motivo específico do problema
+                motivo_bigquery = "Arquivo de credenciais não encontrado"
+                if BIGQUERY_CREDENTIALS_PATH.exists():
+                    motivo_bigquery = "Erro na configuração das credenciais"
+                
+                mensagem_final = f"Processo concluído com sucesso! Arquivos salvos em {PROCESSED_DIR} (BigQuery: {motivo_bigquery})"
+                self.finalizar(True, mensagem_final, [])
             
         except Exception as e:
             logger.error(f"Erro no processamento: {str(e)}")
@@ -250,7 +256,7 @@ class ProcessamentoThread(threading.Thread):
             # Verifica se o arquivo de credenciais existe
             if not BIGQUERY_CREDENTIALS_PATH.exists():
                 logger.warning(f"Arquivo de credenciais do BigQuery não encontrado em: {BIGQUERY_CREDENTIALS_PATH}")
-                self.atualizar_etapa("upload", completed=True, message="Exportação para BigQuery pulada (credenciais não encontradas)")
+                self.atualizar_etapa("upload", completed=True, message="BigQuery: Arquivo de credenciais não encontrado")
                 return True
                 
             # Limpa os dados para remover valores nulos ou problemáticos
@@ -292,7 +298,7 @@ class ProcessamentoThread(threading.Thread):
             centros_custo_invalidos = df_bigquery[~df_bigquery['N_CENTRO_CUSTO'].str.len().isin([9])]
             if not centros_custo_invalidos.empty:
                 logger.error(f"Centros de custo com formato inválido: {centros_custo_invalidos['N_CENTRO_CUSTO'].tolist()}")
-                self.atualizar_etapa("upload", error=True, message="Erro: Existem centros de custo com formato inválido")
+                self.atualizar_etapa("upload", error=True, message="BigQuery: Centros de custo com formato inválido")
                 return False
             
             logger.info(f"Dados mapeados para BigQuery. Shape: {df_bigquery.shape}")
@@ -304,13 +310,13 @@ class ProcessamentoThread(threading.Thread):
             colunas_faltantes = [col for col in colunas_necessarias if col not in df_bigquery.columns]
             if colunas_faltantes:
                 logger.error(f"Colunas faltando no DataFrame BigQuery: {colunas_faltantes}")
-                self.atualizar_etapa("upload", error=True, message=f"Erro: Colunas faltando no DataFrame BigQuery: {colunas_faltantes}")
+                self.atualizar_etapa("upload", error=True, message="BigQuery: Estrutura de dados incompleta")
                 return False
             
             # Verifica se há dados no DataFrame
             if df_bigquery.empty:
                 logger.error("DataFrame BigQuery está vazio")
-                self.atualizar_etapa("upload", error=True, message="Erro: DataFrame BigQuery está vazio")
+                self.atualizar_etapa("upload", error=True, message="BigQuery: Nenhum dado para exportar")
                 return False
                 
             # Verifica se há valores nulos
@@ -318,19 +324,60 @@ class ProcessamentoThread(threading.Thread):
                 nulos = df_bigquery[col].isnull().sum()
                 if nulos > 0:
                     logger.error(f"Coluna {col} tem {nulos} valores nulos")
-                    self.atualizar_etapa("upload", error=True, message=f"Erro: Coluna {col} tem {nulos} valores nulos")
+                    self.atualizar_etapa("upload", error=True, message="BigQuery: Dados com valores nulos")
                     return False
             
             # Cria as credenciais a partir do arquivo JSON
             try:
+                logger.info(f"Tentando carregar credenciais de: {BIGQUERY_CREDENTIALS_PATH}")
+                logger.info(f"Arquivo existe: {BIGQUERY_CREDENTIALS_PATH.exists()}")
+                logger.info(f"Tamanho do arquivo: {BIGQUERY_CREDENTIALS_PATH.stat().st_size if BIGQUERY_CREDENTIALS_PATH.exists() else 'N/A'} bytes")
+                
+                # Lê o arquivo manualmente primeiro para verificar se está válido
+                try:
+                    with open(BIGQUERY_CREDENTIALS_PATH, 'r', encoding='utf-8') as f:
+                        credentials_content = f.read()
+                        logger.info(f"Conteúdo do arquivo lido com sucesso. Tamanho: {len(credentials_content)} caracteres")
+                        
+                        # Verifica se o JSON é válido
+                        import json
+                        credentials_dict = json.loads(credentials_content)
+                        logger.info(f"JSON válido. Campos encontrados: {list(credentials_dict.keys())}")
+                        
+                        # Verifica se os campos obrigatórios estão presentes
+                        required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email']
+                        missing_fields = [field for field in required_fields if field not in credentials_dict]
+                        if missing_fields:
+                            logger.error(f"Campos obrigatórios faltando: {missing_fields}")
+                            self.atualizar_etapa("upload", error=True, message=f"BigQuery: Arquivo de credenciais inválido (campos faltando)")
+                            return False
+                        
+                except json.JSONDecodeError as e:
+                    logger.error(f"Erro ao decodificar JSON: {str(e)}")
+                    self.atualizar_etapa("upload", error=True, message="BigQuery: Arquivo de credenciais com formato inválido")
+                    return False
+                except UnicodeDecodeError as e:
+                    logger.error(f"Erro de encoding no arquivo: {str(e)}")
+                    self.atualizar_etapa("upload", error=True, message="BigQuery: Erro de encoding no arquivo de credenciais")
+                    return False
+                except Exception as e:
+                    logger.error(f"Erro ao ler arquivo de credenciais: {str(e)}")
+                    self.atualizar_etapa("upload", error=True, message="BigQuery: Erro ao ler arquivo de credenciais")
+                    return False
+                
+                # Agora tenta carregar as credenciais usando a biblioteca do Google
                 credentials = service_account.Credentials.from_service_account_file(
-                    BIGQUERY_CREDENTIALS_PATH,
+                    str(BIGQUERY_CREDENTIALS_PATH),  # Converte para string explicitamente
                     scopes=["https://www.googleapis.com/auth/cloud-platform"]
                 )
                 logger.info("Credenciais do BigQuery carregadas com sucesso")
+                
             except Exception as e:
                 logger.error(f"Erro ao carregar credenciais do BigQuery: {str(e)}")
-                self.atualizar_etapa("upload", error=True, message=f"Erro ao carregar credenciais do BigQuery: {str(e)}")
+                logger.error(f"Tipo do erro: {type(e).__name__}")
+                import traceback
+                logger.error(f"Stack trace completo: {traceback.format_exc()}")
+                self.atualizar_etapa("upload", error=True, message="BigQuery: Erro na configuração das credenciais")
                 return False
             
             # Inicializa o cliente do BigQuery
@@ -342,7 +389,7 @@ class ProcessamentoThread(threading.Thread):
                 logger.info(f"Cliente BigQuery inicializado com projeto: {BIGQUERY_CONFIG.get('project_id')}")
             except Exception as e:
                 logger.error(f"Erro ao inicializar cliente BigQuery: {str(e)}")
-                self.atualizar_etapa("upload", error=True, message=f"Erro ao inicializar cliente BigQuery: {str(e)}")
+                self.atualizar_etapa("upload", error=True, message="BigQuery: Erro ao conectar com o serviço")
                 return False
             
             # Define o ID do dataset e tabela
@@ -535,7 +582,7 @@ class ProcessamentoThread(threading.Thread):
                 logger.error(f"Tipo do erro: {type(e).__name__}")
                 import traceback
                 logger.error(f"Stack trace: {traceback.format_exc()}")
-                self.atualizar_etapa("upload", error=True, message=f"Erro ao exportar para BigQuery: {str(e)}")
+                self.atualizar_etapa("upload", error=True, message="BigQuery: Erro durante a exportação dos dados")
                 return False
                 
             finally:
@@ -552,7 +599,7 @@ class ProcessamentoThread(threading.Thread):
             
         except Exception as e:
             logger.error(f"Erro ao exportar para BigQuery: {str(e)}")
-            self.atualizar_etapa("upload", error=True, message=f"Erro ao exportar para BigQuery: {str(e)}")
+            self.atualizar_etapa("upload", error=True, message="BigQuery: Erro geral na exportação")
             return False
 
     def exportar_para_xml(self, df, arquivo_xml):

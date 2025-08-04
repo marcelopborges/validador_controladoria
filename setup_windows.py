@@ -219,6 +219,21 @@ def main():
             cred_path = Path("config/bigquery-credentials.json")
             if cred_path.exists():
                 shutil.copy2(cred_path, dist_package / "config")
+                print(f"✓ Arquivo de credenciais copiado: {cred_path} -> {dist_package / 'config'}")
+            else:
+                print(f"⚠ Arquivo de credenciais não encontrado: {cred_path}")
+                print("  Para configurar o BigQuery:")
+                print("  1. Copie config/bigquery-credentials.example.json para config/bigquery-credentials.json")
+                print("  2. Edite o arquivo com suas credenciais reais do Google Cloud")
+                print("  3. Execute este script novamente")
+            
+            # Verifica se o arquivo foi copiado corretamente
+            dest_cred_path = dist_package / "config" / "bigquery-credentials.json"
+            if dest_cred_path.exists():
+                print(f"✓ Arquivo de credenciais verificado em: {dest_cred_path}")
+                print(f"  Tamanho: {dest_cred_path.stat().st_size} bytes")
+            else:
+                print(f"✗ Erro: Arquivo de credenciais não foi copiado para: {dest_cred_path}")
             
             print("Estrutura de pastas e arquivos copiados para o pacote de distribuição")
             
