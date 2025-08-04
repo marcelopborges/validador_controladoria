@@ -330,44 +330,10 @@ class ProcessamentoThread(threading.Thread):
             # Cria as credenciais a partir do arquivo JSON
             try:
                 logger.info(f"Tentando carregar credenciais de: {BIGQUERY_CREDENTIALS_PATH}")
-                logger.info(f"Arquivo existe: {BIGQUERY_CREDENTIALS_PATH.exists()}")
-                logger.info(f"Tamanho do arquivo: {BIGQUERY_CREDENTIALS_PATH.stat().st_size if BIGQUERY_CREDENTIALS_PATH.exists() else 'N/A'} bytes")
                 
-                # Lê o arquivo manualmente primeiro para verificar se está válido
-                try:
-                    with open(BIGQUERY_CREDENTIALS_PATH, 'r', encoding='utf-8') as f:
-                        credentials_content = f.read()
-                        logger.info(f"Conteúdo do arquivo lido com sucesso. Tamanho: {len(credentials_content)} caracteres")
-                        
-                        # Verifica se o JSON é válido
-                        import json
-                        credentials_dict = json.loads(credentials_content)
-                        logger.info(f"JSON válido. Campos encontrados: {list(credentials_dict.keys())}")
-                        
-                        # Verifica se os campos obrigatórios estão presentes
-                        required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email']
-                        missing_fields = [field for field in required_fields if field not in credentials_dict]
-                        if missing_fields:
-                            logger.error(f"Campos obrigatórios faltando: {missing_fields}")
-                            self.atualizar_etapa("upload", error=True, message=f"BigQuery: Arquivo de credenciais inválido (campos faltando)")
-                            return False
-                        
-                except json.JSONDecodeError as e:
-                    logger.error(f"Erro ao decodificar JSON: {str(e)}")
-                    self.atualizar_etapa("upload", error=True, message="BigQuery: Arquivo de credenciais com formato inválido")
-                    return False
-                except UnicodeDecodeError as e:
-                    logger.error(f"Erro de encoding no arquivo: {str(e)}")
-                    self.atualizar_etapa("upload", error=True, message="BigQuery: Erro de encoding no arquivo de credenciais")
-                    return False
-                except Exception as e:
-                    logger.error(f"Erro ao ler arquivo de credenciais: {str(e)}")
-                    self.atualizar_etapa("upload", error=True, message="BigQuery: Erro ao ler arquivo de credenciais")
-                    return False
-                
-                # Agora tenta carregar as credenciais usando a biblioteca do Google
+                # Usa a mesma abordagem simples da rota /registros
                 credentials = service_account.Credentials.from_service_account_file(
-                    str(BIGQUERY_CREDENTIALS_PATH),  # Converte para string explicitamente
+                    str(BIGQUERY_CREDENTIALS_PATH),
                     scopes=["https://www.googleapis.com/auth/cloud-platform"]
                 )
                 logger.info("Credenciais do BigQuery carregadas com sucesso")
