@@ -1042,16 +1042,20 @@ def editar_registro():
     """Edita um registro na tabela ORCADO e registra a alteração nos metadados."""
     try:
         # Obtém os dados do formulário
-        n_conta = request.form.get('N_CONTA')
-        n_centro_custo = request.form.get('N_CENTRO_CUSTO')
+        filial = request.form.get('FILIAL')
+        n_conta = request.form.get('N_CONTA_DISPLAY')
+        n_centro_custo = request.form.get('N_CENTRO_CUSTO_DISPLAY')
         
         # Faz o parse da data usando a função utilitária
-        data_str = request.form.get('DATA')
+        data_str = request.form.get('DATA_DISPLAY')
         data = parse_data_flexivel(data_str)
         
-        versao = request.form.get('VERSAO')
+        versao = request.form.get('VERSAO_DISPLAY')
         descricao = request.form.get('DESCRICAO')
         valor = float(request.form.get('VALOR'))
+        operacao = request.form.get('OPERACAO', '')
+        rateio = request.form.get('RATEIO', '')
+        origem = request.form.get('ORIGEM', '')
         
         # Verifica se o arquivo de credenciais existe
         if not BIGQUERY_CREDENTIALS_PATH.exists():
@@ -1084,15 +1088,21 @@ def editar_registro():
         table_id = BIGQUERY_CONFIG.get("table_id", "ORCADO")
         metadata_table_id = BIGQUERY_CONFIG.get("metadata_table_id", "ORCADO_METADATA")
         
+        # Obtém os valores originais dos campos hidden
+        n_conta_original = request.form.get('N_CONTA')
+        n_centro_custo_original = request.form.get('N_CENTRO_CUSTO')
+        data_original = request.form.get('DATA')
+        versao_original = request.form.get('VERSAO')
+        
         # Busca o registro original para comparar as alterações
         query_original = f"""
-        SELECT DESCRICAO, VALOR
+        SELECT FILIAL, N_CONTA, N_CENTRO_CUSTO, DESCRICAO, VALOR, OPERACAO, RATEIO, ORIGEM
         FROM `{dataset_id}.{table_id}`
         WHERE 
-            N_CONTA = '{n_conta}'
-            AND N_CENTRO_CUSTO = '{n_centro_custo}'
-            AND DATA = DATE('{data}')
-            AND VERSAO = '{versao}'
+            N_CONTA = '{n_conta_original}'
+            AND N_CENTRO_CUSTO = '{n_centro_custo_original}'
+            AND DATA = DATE('{data_original}')
+            AND VERSAO = '{versao_original}'
         """
         query_job = client.query(query_original)
         resultado = query_job.result()
@@ -1101,23 +1111,41 @@ def editar_registro():
         if registro_original:
             # Prepara o registro de metadados com as alterações
             alteracoes = []
+            if registro_original.FILIAL != filial:
+                alteracoes.append(f"FILIAL: '{registro_original.FILIAL}' -> '{filial}'")
+            if registro_original.N_CONTA != n_conta:
+                alteracoes.append(f"N_CONTA: '{registro_original.N_CONTA}' -> '{n_conta}'")
+            if registro_original.N_CENTRO_CUSTO != n_centro_custo:
+                alteracoes.append(f"N_CENTRO_CUSTO: '{registro_original.N_CENTRO_CUSTO}' -> '{n_centro_custo}'")
             if registro_original.DESCRICAO != descricao:
                 alteracoes.append(f"DESCRICAO: '{registro_original.DESCRICAO}' -> '{descricao}'")
             if float(registro_original.VALOR) != valor:
                 alteracoes.append(f"VALOR: {registro_original.VALOR} -> {valor}")
+            if registro_original.OPERACAO != operacao:
+                alteracoes.append(f"OPERACAO: '{registro_original.OPERACAO}' -> '{operacao}'")
+            if registro_original.RATEIO != rateio:
+                alteracoes.append(f"RATEIO: '{registro_original.RATEIO}' -> '{rateio}'")
+            if registro_original.ORIGEM != origem:
+                alteracoes.append(f"ORIGEM: '{registro_original.ORIGEM}' -> '{origem}'")
             
             # Query para atualizar o registro
             query = f"""
             UPDATE `{dataset_id}.{table_id}`
             SET 
+                FILIAL = '{filial}',
+                N_CONTA = '{n_conta}',
+                N_CENTRO_CUSTO = '{n_centro_custo}',
                 DESCRICAO = '{descricao}',
                 VALOR = {valor},
+                OPERACAO = '{operacao}',
+                RATEIO = '{rateio}',
+                ORIGEM = '{origem}',
                 DATA_ATUALIZACAO = CURRENT_TIMESTAMP()
             WHERE 
-                N_CONTA = '{n_conta}'
-                AND N_CENTRO_CUSTO = '{n_centro_custo}'
-                AND DATA = DATE('{data}')
-                AND VERSAO = '{versao}'
+                N_CONTA = '{n_conta_original}'
+                AND N_CENTRO_CUSTO = '{n_centro_custo_original}'
+                AND DATA = DATE('{data_original}')
+                AND VERSAO = '{versao_original}'
             """
             
             # Executa a query

@@ -153,9 +153,20 @@
                     <td>{{ registro.ORIGEM if registro.ORIGEM and registro.ORIGEM != 'nan' else '' }}</td>
                     <td>{{ registro.DATA_ATUALIZACAO }}</td>
                     <td>
-                        <button type="button" class="btn btn-primary btn-sm" onclick="editarRegistro('{{ registro.N_CONTA }}', '{{ registro.N_CENTRO_CUSTO }}', '{{ registro.DATA }}', '{{ registro.VERSAO }}', '{{ registro.DESCRICAO }}', {{ registro.VALOR }})">
-                            <i class="fas fa-edit"></i>
-                        </button>
+                                            <button type="button" class="btn btn-primary btn-sm" 
+                            data-filial="{{ registro.FILIAL }}"
+                            data-nconta="{{ registro.N_CONTA }}"
+                            data-ncentrocusto="{{ registro.N_CENTRO_CUSTO }}"
+                            data-data="{{ registro.DATA }}"
+                            data-versao="{{ registro.VERSAO }}"
+                            data-descricao="{{ registro.DESCRICAO }}"
+                            data-valor="{{ registro.VALOR }}"
+                            data-operacao="{{ registro.OPERACAO if registro.OPERACAO and registro.OPERACAO != 'nan' else '' }}"
+                            data-rateio="{{ registro.RATEIO if registro.RATEIO and registro.RATEIO != 'nan' else '' }}"
+                            data-origem="{{ registro.ORIGEM if registro.ORIGEM and registro.ORIGEM != 'nan' else '' }}"
+                            onclick="editarRegistro(this)">
+                        <i class="fas fa-edit"></i>
+                    </button>
                         <button type="button" class="btn btn-danger btn-sm" onclick="confirmarDelecao('{{ registro.N_CONTA }}', '{{ registro.N_CENTRO_CUSTO }}', '{{ registro.DATA }}', '{{ registro.VERSAO }}')">
                             <i class="fas fa-trash"></i>
                         </button>
@@ -169,7 +180,7 @@
 
 <!-- Modal de Edição -->
 <div class="modal fade" id="editarModal" tabindex="-1" aria-labelledby="editarModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="editarModalLabel">Editar Registro</h5>
@@ -182,14 +193,78 @@
                     <input type="hidden" name="DATA" id="edit_DATA">
                     <input type="hidden" name="VERSAO" id="edit_VERSAO">
                     
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_FILIAL" class="form-label">Filial</label>
+                                <input type="text" class="form-control" id="edit_FILIAL" name="FILIAL" maxlength="4" pattern="[0-9]{4}" title="Digite os 4 dígitos da filial (ex: 0101)" oninput="this.value = this.value.replace(/[^0-9]/g, '')" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_N_CONTA" class="form-label">Conta</label>
+                                <input type="text" class="form-control" id="edit_N_CONTA_DISPLAY" name="N_CONTA_DISPLAY" maxlength="10" pattern="[0-9]+" title="Digite apenas números" oninput="this.value = this.value.replace(/[^0-9]/g, '')" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_N_CENTRO_CUSTO" class="form-label">Centro de Custo</label>
+                                <input type="text" class="form-control" id="edit_N_CENTRO_CUSTO_DISPLAY" name="N_CENTRO_CUSTO_DISPLAY" maxlength="9" pattern="[0-9]+" title="Digite apenas números" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_DATA" class="form-label">Data</label>
+                                <input type="date" class="form-control" id="edit_DATA_DISPLAY" name="DATA_DISPLAY" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_VERSAO" class="form-label">Versão</label>
+                                <input type="text" class="form-control" id="edit_VERSAO_DISPLAY" name="VERSAO_DISPLAY" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_OPERACAO" class="form-label">Operação</label>
+                                <input type="text" class="form-control" id="edit_OPERACAO" name="OPERACAO" maxlength="10">
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="mb-3">
                         <label for="edit_DESCRICAO" class="form-label">Descrição</label>
                         <input type="text" class="form-control" id="edit_DESCRICAO" name="DESCRICAO" required>
                     </div>
                     
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_VALOR" class="form-label">Valor</label>
+                                <input type="number" step="0.01" class="form-control" id="edit_VALOR" name="VALOR" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_RATEIO" class="form-label">Rateio</label>
+                                <select class="form-control" id="edit_RATEIO" name="RATEIO">
+                                    <option value="">Selecione...</option>
+                                    <option value="SIM">SIM</option>
+                                    <option value="NAO">NÃO</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="mb-3">
-                        <label for="edit_VALOR" class="form-label">Valor</label>
-                        <input type="number" step="0.01" class="form-control" id="edit_VALOR" name="VALOR" required>
+                        <label for="edit_ORIGEM" class="form-label">Origem</label>
+                        <input type="text" class="form-control" id="edit_ORIGEM" name="ORIGEM" maxlength="60">
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -326,15 +401,44 @@
 </div>
 
 <script>
-function editarRegistro(nConta, nCentroCusto, data, versao, descricao, valor) {
-    document.getElementById('edit_N_CONTA').value = nConta;
-    document.getElementById('edit_N_CENTRO_CUSTO').value = nCentroCusto;
-    document.getElementById('edit_DATA').value = data;
-    document.getElementById('edit_VERSAO').value = versao;
-    document.getElementById('edit_DESCRICAO').value = descricao;
-    document.getElementById('edit_VALOR').value = valor;
+function editarRegistro(button) {
+    const filial = button.dataset.filial;
+    const nConta = button.dataset.nconta;
+    const nCentroCusto = button.dataset.ncentrocusto;
+    const data = button.dataset.data;
+    const versao = button.dataset.versao;
+    const descricao = button.dataset.descricao;
+    const valor = button.dataset.valor;
+    const operacao = button.dataset.operacao;
+    const rateio = button.dataset.rateio;
+    const origem = button.dataset.origem;
     
-    new bootstrap.Modal(document.getElementById('editarModal')).show();
+    console.log('Função editarRegistro chamada com:', {filial, nConta, nCentroCusto, data, versao, descricao, valor, operacao, rateio, origem});
+    
+    try {
+        document.getElementById('edit_FILIAL').value = filial;
+        document.getElementById('edit_N_CONTA').value = nConta;
+        document.getElementById('edit_N_CONTA_DISPLAY').value = nConta;
+        document.getElementById('edit_N_CENTRO_CUSTO').value = nCentroCusto;
+        document.getElementById('edit_N_CENTRO_CUSTO_DISPLAY').value = nCentroCusto;
+        document.getElementById('edit_DATA').value = data;
+        document.getElementById('edit_DATA_DISPLAY').value = data;
+        document.getElementById('edit_VERSAO').value = versao;
+        document.getElementById('edit_VERSAO_DISPLAY').value = versao;
+        document.getElementById('edit_DESCRICAO').value = descricao;
+        document.getElementById('edit_VALOR').value = valor;
+        document.getElementById('edit_OPERACAO').value = operacao || '';
+        document.getElementById('edit_RATEIO').value = rateio || '';
+        document.getElementById('edit_ORIGEM').value = origem || '';
+        
+        console.log('Campos preenchidos, abrindo modal...');
+        const modal = new bootstrap.Modal(document.getElementById('editarModal'));
+        modal.show();
+        console.log('Modal aberto com sucesso');
+    } catch (error) {
+        console.error('Erro ao abrir modal:', error);
+        alert('Erro ao abrir modal de edição: ' + error.message);
+    }
 }
 
 function confirmarDelecao(nConta, nCentroCusto, data, versao) {
@@ -345,6 +449,8 @@ function confirmarDelecao(nConta, nCentroCusto, data, versao) {
     
     new bootstrap.Modal(document.getElementById('deletarModal')).show();
 }
+
+
 
 // Função para atualizar o modal de deleção por versão
 document.querySelector('select[name="VERSAO"]').addEventListener('change', function() {
